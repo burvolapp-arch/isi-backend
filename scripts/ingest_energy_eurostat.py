@@ -13,7 +13,7 @@ REFERENCE_YEAR = 2024
 DATASETS = {
     "nrg_ti_gas": "nrg_ti_gas_2024.json",
     "nrg_ti_oil": "nrg_ti_oil_2024.json",
-    "nrg_ti_solid": "nrg_ti_solid_2024.json",
+    "nrg_ti_sff": "nrg_ti_sff_2024.json",
 }
 
 # SDMX key structure:
