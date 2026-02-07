@@ -1,0 +1,67 @@
+cn8_code,material_group,material_name,stage,sovereignty_rationale,contamination_risk,notes
+25309050,rare_earths,Bastnaesite xenotime and similar REE minerals,ores,Primary natural source of rare-earth elements; China dominates global supply,LOW,Clean REE ore code; no contamination risk
+28053010,rare_earths,Intermixtures or interalloys of rare-earth metals scandium and yttrium,refined_metals,Processed REE alloy form; magnet and catalyst feedstock; China ~90% global refining,LOW,
+28053021,rare_earths,Cerium and lanthanum >=95% purity,refined_metals,High-purity separated REE metals; catalyst and glass polishing feedstock,LOW,
+28053029,rare_earths,Praseodymium neodymium and samarium >=95% purity,refined_metals,NdFeB permanent magnet feedstock; wind turbines and EV motors; China dominance,LOW,Critical magnet metals
+28053031,rare_earths,Gadolinium terbium and dysprosium >=95% purity,refined_metals,Heavy REE for high-temperature magnets; extreme supply concentration in China,LOW,Most supply-critical REE subgroup
+28053039,rare_earths,Europium holmium erbium thulium ytterbium lutetium and yttrium >=95% purity,refined_metals,Heavy REE metals; phosphor and laser applications; China near-monopoly,LOW,
+28053040,rare_earths,Scandium >=95% purity,refined_metals,Aerospace aluminium-scandium alloys; very limited global supply,LOW,
+28053080,rare_earths,Rare-earth metals scandium and yttrium <95% purity,refined_metals,Lower-purity REE metals; intermediate processing stage,LOW,
+28461000,rare_earths,Cerium compounds,chemical_precursors,Cerium oxide for catalytic converters and glass polishing; China dominant,LOW,
+28469030,rare_earths,Scandium compounds,chemical_precursors,Scandium compounds for SOFC and Al-Sc alloys,LOW,Niche but strategically relevant
+28469040,rare_earths,Lanthanum compounds,chemical_precursors,Lanthanum oxide for fluid catalytic cracking and battery alloys,LOW,
+28469050,rare_earths,Praseodymium neodymium or samarium compounds,chemical_precursors,NdPr oxide is primary NdFeB magnet precursor; most trade-critical REE compound code,LOW,Highest sovereignty relevance in REE group
+28469060,rare_earths,Gadolinium terbium or dysprosium compounds,chemical_precursors,Heavy REE compounds for high-temperature magnet dopants; extreme China concentration,LOW,
+28469070,rare_earths,Europium holmium erbium thulium ytterbium lutetium or yttrium compounds,chemical_precursors,Mixed heavy REE compounds; phosphor and optical applications,LOW,
+28469090,rare_earths,Compounds of mixtures of rare-earth metals yttrium and scandium,chemical_precursors,Mixed/unseparated REE compounds; early-stage processing,MEDIUM,May include low-value mixed carbonates
+25309040,battery_metals,Spodumene petalite lepidolite amblygonite hectorite jadarite and similar lithium minerals,ores,Primary hard-rock lithium ore; Australia and Chile dominate; battery supply chain entry point,LOW,Clean lithium ore code introduced ~2022
+28252000,battery_metals,Lithium oxide and hydroxide,chemical_precursors,LiOH is primary cathode precursor for NMC and LFP batteries; Chile/China refining dominance,LOW,Key battery chemical
+28369100,battery_metals,Lithium carbonates,chemical_precursors,Li2CO3 is primary lithium commodity; battery cathode and electrolyte precursor,LOW,Benchmark lithium pricing reference
+26040000,battery_metals,Nickel ores and concentrates,ores,Nickel ore for battery-grade nickel sulphate; Indonesia/Philippines dominance,LOW,Single CN8 code for all nickel ores
+75011000,battery_metals,Nickel mattes,concentrates,Intermediate nickel smelter product; feedstock for Class 1 nickel,LOW,
+75012000,battery_metals,Nickel oxide sinters and other intermediate products of nickel metallurgy,concentrates,Intermediate nickel products; HPAL and pyrometallurgical routes,LOW,
+75021000,battery_metals,Nickel not alloyed unwrought,refined_metals,Class 1 nickel metal; battery and stainless steel feedstock,LOW,
+26050000,battery_metals,Cobalt ores and concentrates,ores,Cobalt ore; DRC supplies ~70% of global mine production,LOW,Single CN8 code for all cobalt ores
+81052000,battery_metals,Cobalt mattes and other intermediate products; unwrought cobalt; cobalt powders,refined_metals,Cobalt metal and intermediates; battery cathode and superalloy feedstock; DRC/China refining chain,LOW,
+28220000,battery_metals,Cobalt oxides and hydroxides,chemical_precursors,CoO/Co(OH)2 for battery cathode precursors; China refining dominance,LOW,Single CN8 code — no subheading split
+26020000,battery_metals,Manganese ores and concentrates,ores,Manganese ore for steel and battery-grade MnSO4; South Africa/Gabon/Australia,LOW,Includes ferruginous Mn ores >=20% Mn
+28201000,battery_metals,Manganese dioxide,chemical_precursors,EMD/CMD for alkaline and lithium-ion battery cathodes,LOW,
+28209010,battery_metals,Manganese oxide >=77% Mn content,chemical_precursors,High-grade manganese oxide; battery and chemical applications,LOW,
+28209090,battery_metals,Manganese oxides other,chemical_precursors,Lower-grade manganese oxides; steel and chemical use,MEDIUM,May include non-battery-relevant grades
+25041000,battery_metals,Natural graphite in powder or in flakes,ores,Natural flake graphite for battery anodes; China ~65% global supply,LOW,Clean code — powder/flake form only
+25049000,battery_metals,Natural graphite other forms,ores,Lump and amorphous natural graphite; foundry and refractory use,MEDIUM,Less battery-relevant than 25041000; mixed end-use
+26110000,defense_industrial_metals,Tungsten ores and concentrates,ores,Tungsten ore; China ~80% of global mine production; armour-piercing ammunition and cutting tools,LOW,Single CN8 code
+81011000,defense_industrial_metals,Tungsten powders,refined_metals,Tungsten carbide feedstock; hardmetal tooling and munitions,LOW,
+81019400,defense_industrial_metals,Unwrought tungsten including bars and rods obtained simply by sintering,refined_metals,Primary tungsten metal form; defense and industrial tooling,LOW,
+28499030,defense_industrial_metals,Carbides of tungsten,chemical_precursors,WC for cemented carbide cutting tools and armour-piercing cores,LOW,
+28259040,defense_industrial_metals,Tungsten oxides and hydroxides,chemical_precursors,Intermediate tungsten chemical; precursor to tungsten metal and WC,LOW,
+26140000,defense_industrial_metals,Titanium ores and concentrates,ores,Ilmenite and rutile for titanium sponge; aerospace and defense structural metal,LOW,Single CN8 code post-2010 merger
+81082000,defense_industrial_metals,Unwrought titanium; titanium powders,refined_metals,Titanium sponge and powder for aerospace airframes and jet engines,LOW,
+26131000,defense_industrial_metals,Roasted molybdenum ores and concentrates,concentrates,Molybdenum concentrate for steel alloys and superalloys; Chile/China/US,LOW,
+26139000,defense_industrial_metals,Molybdenum ores and concentrates unroasted,ores,Raw molybdenum ore; byproduct of copper mining,LOW,
+81021000,defense_industrial_metals,Molybdenum powders,refined_metals,Mo powder for sintered products and superalloy feedstock,LOW,
+81029400,defense_industrial_metals,Unwrought molybdenum including bars and rods obtained simply by sintering,refined_metals,Primary molybdenum metal form,LOW,
+28257000,defense_industrial_metals,Molybdenum oxides and hydroxides,chemical_precursors,MoO3 technical oxide; steel alloy and catalyst feedstock,LOW,
+26159000,defense_industrial_metals,Niobium tantalum or vanadium ores and concentrates,ores,Niobium ore (pyrochlore); Brazil ~90% global supply; HSLA steel and superalloys,MEDIUM,Bundles Nb/Ta/V ores — cannot separate at CN8 level
+81129240,defense_industrial_metals,Unwrought niobium; niobium powders,refined_metals,Niobium metal for superconducting magnets and HSLA steel ferroniobium,LOW,
+81129291,defense_industrial_metals,Unwrought vanadium; vanadium powders,refined_metals,Vanadium metal for HSLA steel and vanadium redox flow batteries,LOW,
+28253000,defense_industrial_metals,Vanadium oxides and hydroxides,chemical_precursors,V2O5 for steel alloys and vanadium redox batteries; China/Russia/South Africa,LOW,
+28499050,defense_industrial_metals,Carbides of aluminium chromium molybdenum vanadium tantalum and titanium,chemical_precursors,Mixed strategic carbides for cemented carbide and cermet tooling,MEDIUM,Bundles multiple carbide types — cannot separate
+81124190,defense_industrial_metals,Unwrought rhenium and rhenium powders,refined_metals,Rhenium for single-crystal jet engine superalloy blades; extreme scarcity,LOW,Byproduct of Mo/Cu mining; Chile/US/Poland
+81123100,defense_industrial_metals,Unwrought hafnium and hafnium waste scrap and powders,refined_metals,Hafnium for nuclear reactor control rods and superalloys; byproduct of zirconium,MEDIUM,Includes waste/scrap in same code
+26151000,defense_industrial_metals,Zirconium ores and concentrates,ores,Zircon sand for ceramics and nuclear-grade zirconium; Australia/South Africa,LOW,
+28046100,semiconductor_inputs,Silicon >=99.99% purity,refined_metals,Electronic-grade polysilicon for semiconductor wafers; dual-use export controlled,LOW,Clean high-purity code; solar PV polysilicon also here
+28046900,semiconductor_inputs,Silicon <99.99% purity,refined_metals,Metallurgical-grade silicon; ferrosilicon feedstock and solar-grade Si,MEDIUM,Includes non-semiconductor MG-Si; mixed end-use
+81129295,semiconductor_inputs,Unwrought germanium; germanium powders,refined_metals,Germanium for IR optics and fibre-optic cables; China ~60% global supply; export-controlled by China,LOW,
+28256000,semiconductor_inputs,Germanium oxides and zirconium dioxide,chemical_precursors,GeO2 precursor for germanium metal and PET catalyst; includes ZrO2,MEDIUM,Bundles germanium oxide with zirconium dioxide — cannot separate
+81129289,semiconductor_inputs,Unwrought gallium; gallium powders,refined_metals,Gallium for GaAs and GaN semiconductors; China ~95% global supply; export-controlled by China since 2023,LOW,Most supply-concentrated semiconductor input
+81129281,semiconductor_inputs,Unwrought indium; indium powders,refined_metals,Indium for ITO displays and InP semiconductors; China dominant; byproduct of zinc smelting,LOW,
+28045090,semiconductor_inputs,Tellurium,refined_metals,Tellurium for CdTe thin-film solar and thermoelectric devices; China dominant,LOW,May include boron — check 28045010 split
+28042910,semiconductor_inputs,Helium,refined_metals,Helium for semiconductor fab cooling and MRI; US/Qatar/Algeria supply; non-substitutable in chip manufacturing,MEDIUM,Gas not solid material — but critical semiconductor input
+25101000,fertilizer_chokepoints,Natural calcium phosphates unground,ores,Phosphate rock unground; Morocco/Western Sahara ~70% global reserves; fertilizer feedstock,LOW,
+25102000,fertilizer_chokepoints,Natural calcium phosphates ground,ores,Ground phosphate rock; processed form for direct application or chemical processing,LOW,
+31042010,fertilizer_chokepoints,Potassium chloride <=40% K2O,chemical_precursors,Low-grade muriate of potash (MOP); fertilizer use; Russia/Belarus/Canada dominate,LOW,
+31042050,fertilizer_chokepoints,Potassium chloride >40% to <=62% K2O,chemical_precursors,Standard-grade MOP; dominant potash fertilizer product,LOW,
+31042090,fertilizer_chokepoints,Potassium chloride >62% K2O,chemical_precursors,High-grade MOP; premium potash fertilizer,LOW,
+31043000,fertilizer_chokepoints,Potassium sulphate,chemical_precursors,SOP fertilizer for chloride-sensitive crops; more limited supply than MOP,LOW,
+31049000,fertilizer_chokepoints,Carnallite sylvite and other crude natural potassium salts and mixtures,ores,Crude natural potash salts; raw mineral form before processing,LOW,
