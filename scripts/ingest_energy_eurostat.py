@@ -17,9 +17,10 @@ DATASETS = {
 }
 
 # SDMX key structure:
-# {dataset}/{freq}.{partner}.{product}.{flow}.{unit}.{geo}
-# Wildcards (*) are explicit and intentional.
-SDMX_KEY = "*.A.*.*.*.*"
+# {dataset}/{freq}.{siec}.{partner}.{unit}.{geo}
+# Wildcarding is done by leaving dimension values empty (consecutive dots).
+# A.... corresponds to annual frequency with all other dimensions wildcarded.
+SDMX_KEY = "A...."
 
 QUERY_PARAMS = {
     "format": "JSON",
