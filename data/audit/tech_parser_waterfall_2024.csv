@@ -1,0 +1,10 @@
+stage,count
+raw_rows,24769
+dropped_flow_not_import,0
+dropped_year_out_of_range,0
+dropped_product_unmapped,0
+dropped_reporter_aggregate,2229
+dropped_reporter_not_eu27,0
+dropped_self_pair,0
+dropped_zero_or_missing_value,18
+kept,22522

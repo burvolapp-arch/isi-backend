@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Extract 2023 7z",
+			"type": "shell",
+			"command": "/Users/sebastiandrazsky/Panargus-isi/.venv/bin/python -c \"import py7zr, time; from pathlib import Path; d=Path('/Users/sebastiandrazsky/Panargus-isi/data/raw/comext_bulk/extracted/2023'); d.mkdir(parents=True, exist_ok=True); t=time.time(); py7zr.SevenZipFile('/Users/sebastiandrazsky/Panargus-isi/data/raw/comext_bulk/full_v2_202352.7z','r').__enter__().extractall(path=d); print(f'Done in {time.time()-t:.0f}s')\"",
+			"isBackground": false
+		},
+		{
+			"label": "Extract Critical Inputs",
+			"type": "shell",
+			"command": "/Users/sebastiandrazsky/Panargus-isi/.venv/bin/python /Users/sebastiandrazsky/Panargus-isi/scripts/extract_critical_inputs_comext.py 2>&1 | tee /Users/sebastiandrazsky/Panargus-isi/data/raw/comext_bulk/extract_log.txt",
+			"isBackground": false
+		}
+	]
+}

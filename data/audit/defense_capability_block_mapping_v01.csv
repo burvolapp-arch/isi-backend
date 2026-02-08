@@ -1,0 +1,80 @@
+weapon_description,assigned_block,match_rule
+ABM missile,strike_missile,missile
+FGA aircraft,air_power,FGA
+MCM ship,naval_combat,MCM
+SAM,air_missile_defense,SAM
+SAM system,air_missile_defense,SAM system
+UAV,air_power,UAV
+air refuel system,isr_support,air refuel
+air-search radar,isr_support,a
+air-to-surface missile,strike_missile,air-to-surface missile
+air-to-surface/surface-to-surface missile,strike_missile,surface-to-surface missile
+airborne early-warning aircraft,air_power,aircraft
+aircraft EO/radar system,air_power,aircraft
+aircraft electro-optical system,air_power,aircraft
+aircraft engine,air_power,aircraft
+anti-radar missile,strike_missile,missile
+anti-ship missile,strike_missile,anti-ship
+anti-ship/anti-submarine torpedo,naval_combat,anti-submarine
+anti-ship/land-attack missile,strike_missile,anti-ship
+anti-submarine helicopter,air_power,helicopter
+anti-submarine sonar,naval_combat,anti-submarine
+anti-submarine torpedo,naval_combat,anti-submarine
+anti-tank missile,land_combat,tank
+anti-tank/air-to-surface missile,land_combat,tank
+armed UAV,air_power,UAV
+armoured bridgelayer,land_combat,armoured
+armoured engineer vehicle,land_combat,armoured
+armoured engineer/recovery vehicle,land_combat,armoured
+armoured personnel carrier,land_combat,armoured
+armoured recovery vehicle,land_combat,armoured
+coastal defence system,isr_support,c
+combat aircraft radar,air_power,aircraft
+combat helicopter,air_power,helicopter
+electro-optical system,isr_support,electro-optical
+fire-control radar,isr_support,f
+gas turbine,isr_support,g
+ground surveillance radar,isr_support,g
+guided bomb,strike_missile,guided bomb
+guided glide bomb,strike_missile,guided glide bomb
+guided rocket,strike_missile,guided rocket
+guided shell,strike_missile,guided shell
+helicopter,air_power,helicopter
+infantry fighting vehicle,land_combat,infantry fighting
+infantry fighting vehicle turret,land_combat,infantry fighting
+light aircraft,air_power,aircraft
+light helicopter,air_power,helicopter
+light tank,land_combat,tank
+light transport aircraft,air_power,aircraft
+loitering munition,strike_missile,loitering munition
+long-range air-to-air missile,strike_missile,missile
+maritime patrol UAV,air_power,UAV
+maritime patrol aircraft,air_power,aircraft
+maritime patrol aircraft radar,air_power,aircraft
+minehunter,naval_combat,minehunter
+missile boat,strike_missile,missile
+mortar,land_combat,mortar
+multi-function radar,isr_support,m
+multiple rocket launcher,land_combat,multiple rocket
+naval gun,naval_combat,naval gun
+patrol boat,naval_combat,patrol boat
+patrol ship,naval_combat,patrol ship
+portable SAM,air_missile_defense,SAM
+replenishment ship,naval_combat,replenishment
+self-propelled gun,land_combat,self-propelled gun
+self-propelled gun chassis,land_combat,self-propelled gun
+self-propelled mortar,land_combat,mortar
+ship engine,naval_combat,ship engine
+support ship,naval_combat,support ship
+surface-to-surface missile,strike_missile,surface-to-surface missile
+tank,land_combat,tank
+tanker/transport aircraft,air_power,aircraft
+trainer aircraft,air_power,aircraft
+trainer/combat aircraft,air_power,aircraft
+transport aircraft,air_power,aircraft
+transport helicopter,air_power,helicopter
+transport ship,naval_combat,transport ship
+turbofan,air_power,turbofan
+turbojet,isr_support,t
+turboprop,air_power,turboprop
+vehicle engine,isr_support,v

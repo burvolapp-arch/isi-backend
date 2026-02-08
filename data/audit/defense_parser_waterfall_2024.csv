@@ -1,0 +1,12 @@
+stage,count
+total_deals_read,426
+rows_written,822
+recipient_not_eu27,0
+no_deliveries,0
+no_tiv,0
+no_delivery_years,0
+no_years_in_window,0
+self_pair_excluded,0
+zero_tiv_computed,0
+total_excluded_deals,0
+supplier_unknown_name_remapped,0
