@@ -399,7 +399,6 @@ AXIS_REGISTRY = {
                 "text": "Confidential trade suppression: Q-prefix partner codes excluded. May cause underestimation for some partners.",
             },
         ],
-        "not_yet_materialized": True,
     },
     6: {
         "id": 6,
@@ -471,7 +470,6 @@ AXIS_REGISTRY = {
                 "text": "No route/chokepoint data: the axis cannot detect Suez, Bosporus, or any physical corridor dependency.",
             },
         ],
-        "not_yet_materialized": True,
     },
 }
 

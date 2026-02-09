@@ -1,0 +1,14 @@
+metric,value
+bilateral_rows_total,41919
+bilateral_reporters,26
+iww_reporters,13
+maritime_reporters,22
+channel_a_reporters,27
+channel_b_reporters,26
+axis6_reporters,27
+score_min,0.2729529700
+score_max,1.0000000000
+score_mean,0.5175772331
+cases_BOTH,26
+cases_A_ONLY,1
+data_limitation,maritime+iww excluded from Channel B
