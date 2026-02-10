@@ -1,0 +1,5 @@
+# ISI API — development / CI dependencies (pinned)
+ruff==0.8.6
+bandit==1.8.3
+pip-audit==2.7.3
+httpx==0.28.1

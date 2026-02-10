@@ -1,0 +1,29 @@
+# Version control
+.git
+.gitignore
+
+# Development
+.venv
+.vscode
+__pycache__
+*.pyc
+*.pyo
+
+# Data (raw/processed never deployed; v01 artifacts are in backend/)
+data/
+axis5_raw.tsv
+
+# Documentation and non-runtime files
+docs
+notebooks
+scripts
+
+# OS artifacts
+.DS_Store
+*.swp
+*.swo
+
+# CI / dev config
+.github
+requirements-dev.txt
+Makefile

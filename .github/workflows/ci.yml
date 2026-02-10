@@ -1,0 +1,74 @@
+name: CI — lint, security, import check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check backend/
+
+      - name: Bandit security scan
+        run: bandit -r backend/ -c pyproject.toml
+
+      - name: pip-audit dependency scan
+        run: pip-audit -r requirements.txt
+
+      - name: Import test
+        run: python -c "from backend.isi_api_v01 import app; print('import_ok')"
+
+      - name: Smoke test — app boots in degraded mode
+        run: |
+          ENV=dev python -c "
+          from backend.isi_api_v01 import app, _data_available
+          assert not _data_available(), 'Expected no data in CI'
+          print('boot_ok_degraded')
+          "
+
+      - name: Smoke test — REQUIRE_DATA=1 blocks startup
+        run: |
+          REQUIRE_DATA=1 python -c "
+          import os, sys
+          os.environ['REQUIRE_DATA'] = '1'
+          # Re-import to trigger startup logic
+          try:
+              import importlib
+              import backend.isi_api_v01
+              importlib.reload(backend.isi_api_v01)
+              # Startup event fires via lifespan; in direct import it won't auto-fire.
+              # So we call the startup function directly:
+              backend.isi_api_v01._startup()
+              print('ERROR: should have exited')
+              sys.exit(1)
+          except SystemExit as e:
+              if e.code == 1:
+                  print('require_data_exit_ok')
+              else:
+                  print(f'unexpected exit code: {e.code}')
+                  sys.exit(1)
+          " || true

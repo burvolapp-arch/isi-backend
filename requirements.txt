@@ -1,2 +1,6 @@
-fastapi==0.115.6
-uvicorn==0.34.0
+# ISI API — production dependencies (pinned)
+fastapi==0.128.7
+starlette==0.52.1
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+slowapi==0.1.9
