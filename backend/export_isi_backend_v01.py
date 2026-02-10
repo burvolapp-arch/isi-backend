@@ -310,6 +310,7 @@ AXIS_REGISTRY = {
             "channel_b_volume": "channel_b_volume",
             "score": "defense_dependency",
             "basis": "score_basis",
+            "dependency_semantic": "dependency_semantic",
         },
         "warnings": [
             {
@@ -331,6 +332,11 @@ AXIS_REGISTRY = {
                 "id": "L-4",
                 "severity": "LOW",
                 "text": "Regex-based weapon classification may cause edge-case misclassification across capability blocks.",
+            },
+            {
+                "id": "L-5",
+                "severity": "LOW",
+                "text": "Countries with no bilateral SIPRI supplier entries are assigned score=0 (zero external concentration). This reflects licensed production, joint EU procurement, or domestic manufacturing.",
             },
         ],
     },
@@ -536,7 +542,12 @@ def driver_statement(axis_slug: str, score: float, country: str) -> str:
         "financial": f"{country} scores {score:.4f} on financial sovereignty ({level_text}). This reflects the concentration of inward banking claims and portfolio debt holdings across foreign creditor countries.",
         "energy": f"{country} scores {score:.4f} on energy dependency ({level_text}). This reflects the concentration of fossil fuel imports (gas, oil, solid fossil fuels) across supplier countries.",
         "technology": f"{country} scores {score:.4f} on technology/semiconductor dependency ({level_text}). This reflects the concentration of semiconductor imports across supplier countries.",
-        "defense": f"{country} scores {score:.4f} on defense industrial dependency ({level_text}). This reflects the concentration of major conventional arms imports across supplier countries.",
+        "defense": (
+            f"{country} scores {score:.4f} on defense industrial dependency ({level_text}). "
+            + ("No bilateral arms suppliers recorded in SIPRI (2019\u20132024). Defense procurement occurs via licensed production, joint EU procurement, or domestic manufacturing."
+               if score == 0.0
+               else "This reflects the concentration of major conventional arms imports across supplier countries.")
+        ),
         "critical_inputs": f"{country} scores {score:.4f} on critical inputs dependency ({level_text}). This reflects the concentration of critical raw material imports across supplier countries.",
         "logistics": f"{country} scores {score:.4f} on logistics/freight dependency ({level_text}). This reflects the concentration of international freight across transport modes and bilateral partners.",
     }
@@ -608,8 +619,15 @@ def load_audit_data(axis_num: int) -> dict[str, dict]:
         entry = {}
         for key, col_name in cols.items():
             raw = row.get(col_name, "").strip()
-            if key == "basis":
+            if key in ("basis", "dependency_semantic"):
                 entry[key] = raw
+            elif raw == "":
+                # Empty audit fields are legitimate: a country may lack
+                # one channel entirely (e.g. HR absent from IMF CPIS on
+                # Axis 1, or SK with no bilateral SIPRI data on Axis 4).
+                # Emit 0.0 — the "basis" field documents which channels
+                # contributed to the score.
+                entry[key] = 0.0
             else:
                 entry[key] = parse_float(raw, f"axis {axis_num} audit, {geo}, {key}")
 

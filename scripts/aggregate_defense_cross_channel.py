@@ -19,12 +19,23 @@ Methodology (locked):
   DefenseDependency_i = (C_i^{A} * W_i^{A} + C_i^{B} * W_i^{B}) / (W_i^{A} + W_i^{B})
 
   If one channel has zero volume → reduce to the other channel.
-  If both channels have zero volume → omit with audit reason.
+
+  ZERO-DEPENDENCY SEMANTIC RULE (LOCKED):
+  If an EU-27 country has NO bilateral SIPRI supplier entries
+  (both channels have zero volume), its external defense dependency
+  is defined as ZERO (score = 0), NOT missing, NOT estimated.
+  This represents zero external supplier concentration and maximal
+  sovereignty on defense supply. Academically defensible: a country
+  with no recorded arms imports has no import concentration.
+  Applies to countries whose arms procurement occurs via licensed
+  production, joint EU procurement, or domestic manufacturing.
+  Machine-readable flag: score_basis = "NO_BILATERAL_SUPPLIERS"
 
 Constraints:
   - Defense dependency in [0, 1]
   - EU-27 only (Eurostat geo codes, EL for Greece)
   - Hard-fail if score out of bounds
+  - Must produce exactly 27 rows (one per EU-27 country)
 
 Task: ISI-DEFENSE-AGGREGATE
 """
@@ -57,7 +68,7 @@ BOUND_TOLERANCE = 1e-9
 def load_csv_dict(filepath, key_col, val_col):
     """Load a CSV into a dict: key_col -> float(val_col)."""
     result = {}
-    with open(filepath, "r", encoding="utf-8", newline="") as f:
+    with open(filepath, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             result[row[key_col]] = float(row[val_col])
@@ -81,10 +92,10 @@ def main():
     PROC_DIR.mkdir(parents=True, exist_ok=True)
 
     scored = 0
-    omitted = 0
     single_channel_a = 0
     single_channel_b = 0
     both_channels = 0
+    zero_bilateral = 0
 
     with open(OUT_FILE, "w", newline="") as fo, \
          open(AUDIT_FILE, "w", newline="") as fa:
@@ -101,6 +112,7 @@ def main():
             "channel_b_volume",
             "defense_dependency",
             "score_basis",
+            "dependency_semantic",
         ])
 
         for geo in EU27:
@@ -111,6 +123,7 @@ def main():
 
             score = None
             basis = ""
+            semantic = ""
 
             has_a = c_a is not None and w_a > 0.0
             has_b = c_b is not None and w_b > 0.0
@@ -128,48 +141,65 @@ def main():
                 basis = "CHANNEL_B_ONLY"
                 single_channel_b += 1
             else:
-                basis = "OMITTED_NO_DATA"
-                omitted += 1
+                # ZERO-DEPENDENCY SEMANTIC (LOCKED RULE):
+                # Country has NO bilateral SIPRI supplier entries.
+                # This is NOT missing data — it is a definitive zero:
+                #   - zero external supplier concentration
+                #   - maximal sovereignty on defense supply
+                # Applies to countries with licensed production,
+                # joint EU procurement, or domestic manufacturing.
+                score = 0.0
+                basis = "NO_BILATERAL_SUPPLIERS"
+                semantic = "no_bilateral_suppliers"
+                zero_bilateral += 1
+                print(f"  INFO: {geo} has no bilateral SIPRI suppliers — "
+                      f"defense dependency := 0 (zero external concentration)")
 
-            if score is not None:
-                if score < -BOUND_TOLERANCE or score > 1.0 + BOUND_TOLERANCE:
-                    print(f"FATAL: score out of bounds ({score}) for {geo}", file=sys.stderr)
-                    sys.exit(1)
+            if score < -BOUND_TOLERANCE or score > 1.0 + BOUND_TOLERANCE:
+                print(f"FATAL: score out of bounds ({score}) for {geo}", file=sys.stderr)
+                sys.exit(1)
 
-                ow.writerow([geo, score])
-                scored += 1
+            ow.writerow([geo, score])
+            scored += 1
 
             aw.writerow([
                 geo,
-                c_a if c_a is not None else "",
+                c_a if c_a is not None else 0.0,
                 w_a,
-                c_b if c_b is not None else "",
+                c_b if c_b is not None else 0.0,
                 w_b,
-                score if score is not None else "",
+                score,
                 basis,
+                semantic,
             ])
 
     print()
-    print(f"Defense dependency results:")
+    print("Defense dependency results:")
     print(f"  Output:    {OUT_FILE}")
     print(f"  Audit:     {AUDIT_FILE}")
     print(f"  Scored:    {scored}/27")
-    print(f"    Both channels:   {both_channels}")
-    print(f"    Channel A only:  {single_channel_a}")
-    print(f"    Channel B only:  {single_channel_b}")
-    print(f"  Omitted:   {omitted}")
+    print(f"    Both channels:          {both_channels}")
+    print(f"    Channel A only:         {single_channel_a}")
+    print(f"    Channel B only:         {single_channel_b}")
+    print(f"    Zero bilateral (score=0): {zero_bilateral}")
 
-    if omitted > 0:
-        omitted_geos = []
-        with open(AUDIT_FILE, "r", encoding="utf-8", newline="") as f:
+    if zero_bilateral > 0:
+        zero_geos = []
+        with open(AUDIT_FILE, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if row["score_basis"] == "OMITTED_NO_DATA":
-                    omitted_geos.append(row["geo"])
-        print(f"  Omitted countries: {omitted_geos}")
+                if row["score_basis"] == "NO_BILATERAL_SUPPLIERS":
+                    zero_geos.append(row["geo"])
+        print(f"  Zero-bilateral countries: {zero_geos}")
+        print("  Semantic: no bilateral SIPRI suppliers → defense dependency := 0")
+
+    # Hard-fail if we don't have exactly 27 countries
+    if scored != 27:
+        print(f"FATAL: expected 27 scored countries, got {scored}", file=sys.stderr)
+        sys.exit(1)
 
     print()
-    print("  All checks passed.")
+    print("  All checks passed (27/27 EU-27 countries scored).")
 
 
 if __name__ == "__main__":

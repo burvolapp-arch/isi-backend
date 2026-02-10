@@ -1,0 +1,281 @@
+[
+  {
+    "id": 1,
+    "slug": "financial",
+    "name": "Financial Sovereignty",
+    "description": "Concentration of inward banking claims and portfolio debt holdings across foreign creditor countries.",
+    "unit": "USD millions",
+    "version": "v0.1",
+    "status": "FROZEN",
+    "materialized": true,
+    "channels": [
+      {
+        "id": "A",
+        "name": "Banking Claims Concentration",
+        "source": "BIS Locational Banking Statistics (LBS)"
+      },
+      {
+        "id": "B",
+        "name": "Portfolio Debt Concentration",
+        "source": "IMF CPIS"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "L-1",
+        "severity": "MEDIUM",
+        "text": "BIS creditor coverage gap: non-BIS-reporting countries absent as creditors; concentration may be biased upward."
+      },
+      {
+        "id": "L-2",
+        "severity": "MEDIUM",
+        "text": "IMF CPIS participation is voluntary; China does not participate. Portfolio debt concentration may understate true exposure."
+      },
+      {
+        "id": "L-3",
+        "severity": "LOW",
+        "text": "Partial overlap between Channel A (bank claims) and Channel B (portfolio debt securities held by banks)."
+      },
+      {
+        "id": "L-4",
+        "severity": "LOW",
+        "text": "Croatia (HR) absent from Channel B (IMF CPIS). Score reduces to Channel A only."
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "slug": "energy",
+    "name": "Energy Dependency",
+    "description": "Concentration of fossil fuel imports (gas, oil, solid fossil fuels) across supplier countries, volume-weighted across fuel types.",
+    "unit": "varies by fuel (MIO_M3, THS_T)",
+    "version": "v0.1",
+    "status": "FROZEN",
+    "materialized": true,
+    "channels": [
+      {
+        "id": "gas",
+        "name": "Natural Gas Import Concentration",
+        "source": "Eurostat nrg_ti_gas"
+      },
+      {
+        "id": "oil",
+        "name": "Oil Import Concentration",
+        "source": "Eurostat nrg_ti_oil"
+      },
+      {
+        "id": "solid_fossil",
+        "name": "Solid Fossil Fuel Import Concentration",
+        "source": "Eurostat nrg_ti_sff"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "L-1",
+        "severity": "MEDIUM",
+        "text": "Pipeline gas and LNG not separated. A country importing 50% pipeline gas from Russia and 50% LNG from multiple sources scores as if partially diversified."
+      },
+      {
+        "id": "L-2",
+        "severity": "MEDIUM",
+        "text": "Re-exports and transit flows may distort bilateral attribution across all fuel types."
+      },
+      {
+        "id": "L-3",
+        "severity": "LOW",
+        "text": "No price or contract-duration effects captured. Volume-based concentration only."
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "slug": "technology",
+    "name": "Technology / Semiconductor Dependency",
+    "description": "Concentration of semiconductor imports across supplier countries, with category-level decomposition.",
+    "unit": "EUR",
+    "version": "v0.1",
+    "status": "FROZEN",
+    "materialized": true,
+    "channels": [
+      {
+        "id": "A",
+        "name": "Aggregate Supplier Concentration",
+        "source": "Eurostat Comext ds-045409"
+      },
+      {
+        "id": "B",
+        "name": "Category-Weighted Supplier Concentration",
+        "source": "Eurostat Comext ds-045409"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "W-2",
+        "severity": "MEDIUM",
+        "text": "Re-export blindness: bilateral trade records shipping country, not country of origin."
+      },
+      {
+        "id": "W-3",
+        "severity": "LOW",
+        "text": "Trade concentration does not capture domestic fabrication capacity."
+      },
+      {
+        "id": "W-4",
+        "severity": "LOW",
+        "text": "HS 8542 at HS4 aggregate: integrated circuits not decomposed into subcategories."
+      },
+      {
+        "id": "W-5",
+        "severity": "LOW",
+        "text": "Intra-EU trade included: EU partners appear as suppliers (by design)."
+      },
+      {
+        "id": "W-6",
+        "severity": "LOW",
+        "text": "Three-year window (2022–2024) may include pandemic-era distortions."
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "slug": "defense",
+    "name": "Defense Industrial Dependency",
+    "description": "Concentration of major conventional arms imports across supplier countries and capability blocks.",
+    "unit": "SIPRI TIV",
+    "version": "v0.1",
+    "status": "FROZEN",
+    "materialized": true,
+    "channels": [
+      {
+        "id": "A",
+        "name": "Aggregate Supplier Concentration",
+        "source": "SIPRI Arms Transfers Database"
+      },
+      {
+        "id": "B",
+        "name": "Capability-Block Weighted Concentration",
+        "source": "SIPRI Arms Transfers Database"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "L-1",
+        "severity": "MEDIUM",
+        "text": "SIPRI TIV is a volume indicator, not a financial value. Comparability across weapon types is approximate."
+      },
+      {
+        "id": "L-2",
+        "severity": "MEDIUM",
+        "text": "SIPRI covers major conventional weapons only. Small arms, ammunition, MRO, and sustainment contracts are excluded."
+      },
+      {
+        "id": "L-3",
+        "severity": "LOW",
+        "text": "Six-year delivery window (2019–2024) may include legacy contracts not reflecting current strategic posture."
+      },
+      {
+        "id": "L-4",
+        "severity": "LOW",
+        "text": "Regex-based weapon classification may cause edge-case misclassification across capability blocks."
+      },
+      {
+        "id": "L-5",
+        "severity": "LOW",
+        "text": "Countries with no bilateral SIPRI supplier entries are assigned score=0 (zero external concentration). This reflects licensed production, joint EU procurement, or domestic manufacturing."
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "slug": "critical_inputs",
+    "name": "Critical Inputs / Raw Materials Dependency",
+    "description": "Concentration of critical raw material imports across supplier countries, with material-group decomposition.",
+    "unit": "EUR",
+    "version": "v0.1",
+    "status": "FROZEN",
+    "materialized": true,
+    "channels": [
+      {
+        "id": "A",
+        "name": "Aggregate Supplier Concentration",
+        "source": "Eurostat Comext ds-045409 (CN8)"
+      },
+      {
+        "id": "B",
+        "name": "Material-Group Weighted Supplier Concentration",
+        "source": "Eurostat Comext ds-045409 (CN8)"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "L-1",
+        "severity": "HIGH",
+        "text": "Re-export and entrepot masking: bilateral trade records shipping country, not origin. 13 of 27 reporters source >50% from EU partners."
+      },
+      {
+        "id": "L-2",
+        "severity": "MEDIUM",
+        "text": "Small-economy amplification: CY, MT, LU produce mechanically high HHI values due to low total import volumes."
+      },
+      {
+        "id": "L-3",
+        "severity": "MEDIUM",
+        "text": "CN8 scope covers upstream materials only. Midstream processing and downstream products excluded. China's role understated."
+      },
+      {
+        "id": "L-4",
+        "severity": "LOW",
+        "text": "Confidential trade suppression: Q-prefix partner codes excluded. May cause underestimation for some partners."
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "slug": "logistics",
+    "name": "Logistics / Freight Dependency",
+    "description": "Concentration of international freight across transport modes and bilateral freight partners per mode.",
+    "unit": "THS_T (thousand tonnes)",
+    "version": "v0.1",
+    "status": "FROZEN",
+    "materialized": true,
+    "channels": [
+      {
+        "id": "A",
+        "name": "Transport Mode Concentration",
+        "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw"
+      },
+      {
+        "id": "B",
+        "name": "Partner Concentration per Transport Mode",
+        "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "W-1",
+        "severity": "HIGH",
+        "text": "Entrepot/hub masking: NL and BE scores understate their systemic importance as continental freight hubs; countries trading through NL/BE have inflated partner concentration masking true origin."
+      },
+      {
+        "id": "W-2",
+        "severity": "MEDIUM",
+        "text": "Geographic determinism: MT (Channel A HHI = 1.0), CY, and landlocked countries have structurally constrained scores reflecting geography, not policy choices."
+      },
+      {
+        "id": "W-3",
+        "severity": "MEDIUM",
+        "text": "Maritime-energy overlap: maritime tonnage includes energy commodity transport, creating partial redundancy with Axis 3 (Energy)."
+      },
+      {
+        "id": "W-4",
+        "severity": "MEDIUM",
+        "text": "Tonnage blindness: all freight is treated equally per tonne regardless of commodity type; strategic commodity differentiation is absent."
+      },
+      {
+        "id": "W-5",
+        "severity": "LOW",
+        "text": "No route/chokepoint data: the axis cannot detect Suez, Bosporus, or any physical corridor dependency."
+      }
+    ]
+  }
+]

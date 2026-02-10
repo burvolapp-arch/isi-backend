@@ -1,0 +1,1115 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ISI API",
+    "description": "International Sovereignty Index — Read-Only API v0.1. Serves pre-materialized JSON artifacts. Zero computation at request time.",
+    "version": "0.1.0",
+    "contact": {
+      "name": "Panargus / ISI Backend"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Local development"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "root",
+        "summary": "API metadata",
+        "description": "Returns ISI project metadata, version, scope, and aggregation formula.",
+        "tags": ["meta"],
+        "responses": {
+          "200": {
+            "description": "ISI project metadata",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Meta" }
+              }
+            }
+          },
+          "503": {
+            "description": "Backend data not materialized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Health check",
+        "description": "Returns backend data availability status. Always responds 200.",
+        "tags": ["meta"],
+        "responses": {
+          "200": {
+            "description": "Backend data availability",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthCheck" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/countries": {
+      "get": {
+        "operationId": "list_countries",
+        "summary": "All EU-27 countries with summary scores",
+        "description": "Returns all 27 EU countries with per-axis scores and ISI composite. No sort order guaranteed.",
+        "tags": ["countries"],
+        "responses": {
+          "200": {
+            "description": "Array of 27 country summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/CountrySummary" },
+                  "minItems": 27,
+                  "maxItems": 27
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "countries.json not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/country/{code}": {
+      "get": {
+        "operationId": "get_country",
+        "summary": "Full country detail",
+        "description": "Returns the complete detail object for one country: ISI composite, all 6 axis scores with per-channel breakdowns, top partners, subcategory decompositions, audit data, and warnings.",
+        "tags": ["countries"],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+            "description": "EU-27 country code (case-insensitive). Greece = EL."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full country detail",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CountryDetail" }
+              }
+            }
+          },
+          "404": {
+            "description": "Country not in EU-27",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "503": {
+            "description": "Country file not materialized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/country/{code}/axes": {
+      "get": {
+        "operationId": "get_country_axes",
+        "summary": "All axis scores for one country (lightweight)",
+        "description": "Returns scores and classifications only — no channels, partners, audit, or warnings.",
+        "tags": ["countries"],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+            "description": "EU-27 country code (case-insensitive)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Country axis summary",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CountryAxesSummary" }
+              }
+            }
+          },
+          "404": {
+            "description": "Country not in EU-27",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "503": {
+            "description": "Country file not materialized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/country/{code}/axis/{axis_id}": {
+      "get": {
+        "operationId": "get_country_axis",
+        "summary": "Single axis detail for one country",
+        "description": "Returns full detail for a single axis for a single country, including channels, partners, subcategories, audit, and warnings.",
+        "tags": ["countries"],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+            "description": "EU-27 country code (case-insensitive)"
+          },
+          {
+            "name": "axis_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 6 },
+            "description": "Axis number (1–6)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Single axis detail for country",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CountryAxisResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Country not in EU-27 or axis_id not in 1–6",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "503": {
+            "description": "Country file not materialized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/axes": {
+      "get": {
+        "operationId": "list_axes",
+        "summary": "Axis registry",
+        "description": "Returns metadata for all 6 axes: names, descriptions, units, channels, warnings, materialization status. No per-country scores.",
+        "tags": ["axes"],
+        "responses": {
+          "200": {
+            "description": "Array of 6 axis registry entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/AxisRegistryEntry" },
+                  "minItems": 6,
+                  "maxItems": 6
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "axes.json not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/axis/{axis_id}": {
+      "get": {
+        "operationId": "get_axis",
+        "summary": "Full axis detail across all 27 countries",
+        "description": "Returns scores for all 27 countries on one axis, sorted by score descending, with statistics and audit breakdowns.",
+        "tags": ["axes"],
+        "parameters": [
+          {
+            "name": "axis_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 6 },
+            "description": "Axis number (1–6)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full axis detail with all country scores",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AxisDetail" }
+              }
+            }
+          },
+          "404": {
+            "description": "axis_id not in 1–6",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "503": {
+            "description": "Axis detail not materialized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isi": {
+      "get": {
+        "operationId": "get_isi",
+        "summary": "Composite ISI scores for all countries",
+        "description": "Returns ISI composite scores for all 27 countries with per-axis breakdowns, sorted by isi_composite descending.",
+        "tags": ["composite"],
+        "responses": {
+          "200": {
+            "description": "ISI composite with per-country breakdowns",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ISIComposite" }
+              }
+            }
+          },
+          "503": {
+            "description": "isi.json not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorDetail": {
+        "type": "object",
+        "required": ["detail"],
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "Human-readable error message"
+          }
+        }
+      },
+      "Meta": {
+        "type": "object",
+        "description": "ISI project metadata and versioning",
+        "required": ["project", "version", "reference_window", "scope", "num_axes", "num_countries", "aggregation_rule", "aggregation_formula", "score_range", "interpretation", "generated_by"],
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project identifier",
+            "example": "Panargus / International Sovereignty Index (ISI)"
+          },
+          "version": {
+            "type": "string",
+            "description": "ISI version tag",
+            "example": "v0.1"
+          },
+          "reference_window": {
+            "type": "string",
+            "description": "Data reference period",
+            "example": "2022–2024"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Geographic scope",
+            "example": "EU-27"
+          },
+          "num_axes": {
+            "type": "integer",
+            "description": "Number of dependency axes. Always 6.",
+            "enum": [6]
+          },
+          "num_countries": {
+            "type": "integer",
+            "description": "Number of countries in scope. Always 27.",
+            "enum": [27]
+          },
+          "aggregation_rule": {
+            "type": "string",
+            "description": "How axis scores are combined into ISI composite",
+            "enum": ["unweighted_arithmetic_mean"]
+          },
+          "aggregation_formula": {
+            "type": "string",
+            "description": "LaTeX-style formula",
+            "example": "ISI_i = (A1_i + A2_i + A3_i + A4_i + A5_i + A6_i) / 6"
+          },
+          "score_range": {
+            "type": "array",
+            "description": "Valid score bounds [min, max]",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2,
+            "example": [0.0, 1.0]
+          },
+          "interpretation": {
+            "type": "string",
+            "description": "Score interpretation direction",
+            "example": "higher = more concentrated = more dependent"
+          },
+          "generated_by": {
+            "type": "string",
+            "description": "Script that produced the backend artifacts",
+            "example": "export_isi_backend_v01.py"
+          }
+        }
+      },
+      "HealthCheck": {
+        "type": "object",
+        "description": "Backend data availability status",
+        "required": ["status", "backend_root", "meta", "countries_summary", "isi_composite", "country_detail_files", "axis_detail_files"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "degraded"],
+            "description": "'ok' if meta + countries + isi all exist, else 'degraded'"
+          },
+          "backend_root": {
+            "type": "string",
+            "description": "Absolute filesystem path to backend data directory"
+          },
+          "meta": {
+            "type": "boolean",
+            "description": "true if meta.json exists on disk"
+          },
+          "countries_summary": {
+            "type": "boolean",
+            "description": "true if countries.json exists on disk"
+          },
+          "isi_composite": {
+            "type": "boolean",
+            "description": "true if isi.json exists on disk"
+          },
+          "country_detail_files": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 27,
+            "description": "Number of country/*.json files found"
+          },
+          "axis_detail_files": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "description": "Number of axis/*.json files found"
+          }
+        }
+      },
+      "CountrySummary": {
+        "type": "object",
+        "description": "One country's summary scores across all axes",
+        "required": ["country", "country_name"],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "Eurostat ISO 3166-1 alpha-2 code. Greece = EL."
+          },
+          "country_name": {
+            "type": "string",
+            "description": "English country name"
+          },
+          "axis_1_financial": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Financial Sovereignty score (HHI-based)"
+          },
+          "axis_2_energy": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Energy Dependency score (volume-weighted fuel HHI)"
+          },
+          "axis_3_technology": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Technology / Semiconductor Dependency score"
+          },
+          "axis_4_defense": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Defense Industrial Dependency score (SIPRI TIV-based)"
+          },
+          "axis_5_critical_inputs": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Critical Inputs / Raw Materials Dependency score"
+          },
+          "axis_6_logistics": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Logistics / Freight Dependency score"
+          },
+          "isi_composite": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Unweighted arithmetic mean of all 6 axis scores. null if any axis is null."
+          }
+        }
+      },
+      "Warning": {
+        "type": "object",
+        "description": "Data limitation or methodological caveat",
+        "required": ["id", "severity", "text"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Warning identifier (e.g. 'L-1', 'W-2')"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MEDIUM", "LOW"],
+            "description": "Impact severity of the limitation"
+          },
+          "text": {
+            "type": "string",
+            "description": "Factual description of the limitation"
+          }
+        }
+      },
+      "PartnerShare": {
+        "type": "object",
+        "description": "One bilateral partner's share in a concentration channel",
+        "required": ["partner", "share"],
+        "properties": {
+          "partner": {
+            "type": "string",
+            "description": "Partner country/entity code (e.g. 'DE', 'CN', 'US', 'NSP' for not-specified)"
+          },
+          "share": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Fraction of total volume attributed to this partner. Sum across all partners ≈ 1.0."
+          }
+        }
+      },
+      "Subcategory": {
+        "type": "object",
+        "description": "Subcategory decomposition (HS category, capability block, transport mode, or material group)",
+        "required": ["category", "concentration"],
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Subcategory name (e.g. 'integrated_circuits', 'combat_aircraft', 'road', 'rare_earth_elements')"
+          },
+          "concentration": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "HHI concentration for this subcategory"
+          },
+          "volume": {
+            "type": "number",
+            "description": "Volume/value in axis-specific units. Optional — absent if data not available."
+          }
+        }
+      },
+      "ChannelDetail": {
+        "type": "object",
+        "description": "Per-channel breakdown within an axis for one country",
+        "required": ["channel_id", "channel_name", "source"],
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Channel identifier ('A', 'B', 'gas', 'oil', 'solid_fossil')"
+          },
+          "channel_name": {
+            "type": "string",
+            "description": "Human-readable channel name"
+          },
+          "source": {
+            "type": "string",
+            "description": "Data source reference"
+          },
+          "top_partners": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PartnerShare" },
+            "maxItems": 10,
+            "description": "Up to 10 top partners sorted by share descending. Absent if no partner data available."
+          },
+          "total_partners": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Total number of partners before top-10 truncation"
+          },
+          "subcategories": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Subcategory" },
+            "description": "Subcategory breakdowns. Absent if not applicable to this channel."
+          }
+        }
+      },
+      "AuditBreakdown": {
+        "type": "object",
+        "description": "Per-country audit breakdown showing both channel concentrations, volumes, and final score derivation",
+        "required": ["channel_a_concentration", "channel_a_volume", "channel_b_concentration", "channel_b_volume", "score", "basis"],
+        "properties": {
+          "channel_a_concentration": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "HHI concentration for Channel A"
+          },
+          "channel_a_volume": {
+            "type": "number",
+            "description": "Total volume for Channel A (units vary: USD millions, EUR, SIPRI TIV, THS_T)"
+          },
+          "channel_b_concentration": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "HHI concentration for Channel B"
+          },
+          "channel_b_volume": {
+            "type": "number",
+            "description": "Total volume for Channel B"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Final axis score = mean(channel_a, channel_b) or channel_a only if B unavailable"
+          },
+          "basis": {
+            "type": "string",
+            "description": "Score derivation provenance: 'BOTH', 'BOTH_CHANNELS', 'A_ONLY', or other provenance tag"
+          }
+        }
+      },
+      "FuelConcentrations": {
+        "type": "object",
+        "description": "Per-fuel HHI concentrations (Axis 2 only)",
+        "required": ["gas", "oil", "solid_fossil"],
+        "properties": {
+          "gas": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "HHI for natural gas imports"
+          },
+          "oil": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "HHI for oil imports"
+          },
+          "solid_fossil": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "HHI for solid fossil fuel imports"
+          }
+        }
+      },
+      "AxisDetailEntry": {
+        "type": "object",
+        "description": "Full axis detail for one country, including channels, audit, and warnings",
+        "required": ["axis_id", "axis_slug", "axis_name", "warnings"],
+        "properties": {
+          "axis_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6,
+            "description": "Axis number"
+          },
+          "axis_slug": {
+            "type": "string",
+            "enum": ["financial", "energy", "technology", "defense", "critical_inputs", "logistics"],
+            "description": "Machine-readable axis identifier"
+          },
+          "axis_name": {
+            "type": "string",
+            "description": "Human-readable axis name"
+          },
+          "score": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Axis score for this country. null if not materialized."
+          },
+          "classification": {
+            "type": ["string", "null"],
+            "enum": ["unconcentrated", "mildly_concentrated", "moderately_concentrated", "highly_concentrated", null],
+            "description": "Score classification. Thresholds: <0.15 unconcentrated, <0.25 mild, <0.50 moderate, ≥0.50 high."
+          },
+          "driver_statement": {
+            "type": "string",
+            "description": "Deterministic factual sentence describing what the score means for this country."
+          },
+          "audit": {
+            "$ref": "#/components/schemas/AuditBreakdown",
+            "description": "Channel-level audit breakdown. Key absent (not null) if no audit data."
+          },
+          "channels": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ChannelDetail" },
+            "description": "Per-channel breakdowns with partners and subcategories. Key absent if no channel detail."
+          },
+          "fuel_concentrations": {
+            "$ref": "#/components/schemas/FuelConcentrations",
+            "description": "Per-fuel HHI. Present ONLY when axis_id = 2."
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Warning" },
+            "description": "Data limitations and methodological caveats. Always non-empty."
+          }
+        }
+      },
+      "CountryDetail": {
+        "type": "object",
+        "description": "Complete country detail: ISI composite + all 6 axes with full breakdowns",
+        "required": ["country", "country_name", "version", "window", "isi_composite", "isi_classification", "axes_available", "axes_required", "axes"],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "Eurostat country code"
+          },
+          "country_name": {
+            "type": "string",
+            "description": "English country name"
+          },
+          "version": {
+            "type": "string",
+            "description": "ISI version"
+          },
+          "window": {
+            "type": "string",
+            "description": "Data reference period"
+          },
+          "isi_composite": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "ISI composite score = mean(A1..A6). null if any axis missing."
+          },
+          "isi_classification": {
+            "type": ["string", "null"],
+            "enum": ["unconcentrated", "mildly_concentrated", "moderately_concentrated", "highly_concentrated", null],
+            "description": "Classification of the ISI composite score"
+          },
+          "axes_available": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "description": "Number of axes with materialized scores"
+          },
+          "axes_required": {
+            "type": "integer",
+            "enum": [6],
+            "description": "Always 6"
+          },
+          "axes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AxisDetailEntry" },
+            "minItems": 6,
+            "maxItems": 6,
+            "description": "All 6 axes sorted by axis_id ascending"
+          }
+        }
+      },
+      "CountryAxesSummary": {
+        "type": "object",
+        "description": "Lightweight axis summary for one country (scores + classifications only)",
+        "required": ["country", "country_name", "isi_composite", "axes"],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "country_name": {
+            "type": "string"
+          },
+          "isi_composite": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "axes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["axis_id", "axis_slug", "score", "classification"],
+              "properties": {
+                "axis_id": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 6
+                },
+                "axis_slug": {
+                  "type": "string",
+                  "enum": ["financial", "energy", "technology", "defense", "critical_inputs", "logistics"]
+                },
+                "score": {
+                  "type": ["number", "null"],
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "classification": {
+                  "type": ["string", "null"],
+                  "enum": ["unconcentrated", "mildly_concentrated", "moderately_concentrated", "highly_concentrated", null]
+                }
+              }
+            },
+            "minItems": 6,
+            "maxItems": 6
+          }
+        }
+      },
+      "CountryAxisResponse": {
+        "type": "object",
+        "description": "Single axis detail for a single country",
+        "required": ["country", "country_name", "axis"],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "country_name": {
+            "type": "string"
+          },
+          "axis": {
+            "$ref": "#/components/schemas/AxisDetailEntry"
+          }
+        }
+      },
+      "AxisRegistryEntry": {
+        "type": "object",
+        "description": "Axis metadata entry (no per-country scores)",
+        "required": ["id", "slug", "name", "description", "unit", "version", "status", "materialized", "channels", "warnings"],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "slug": {
+            "type": "string",
+            "enum": ["financial", "energy", "technology", "defense", "critical_inputs", "logistics"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable axis name"
+          },
+          "description": {
+            "type": "string",
+            "description": "One-sentence axis description"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Measurement unit (e.g. 'USD millions', 'EUR', 'SIPRI TIV', 'THS_T (thousand tonnes)')"
+          },
+          "version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["FROZEN"],
+            "description": "Always FROZEN in v0.1"
+          },
+          "materialized": {
+            "type": "boolean",
+            "description": "true if axis data is computed and on disk"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "source"],
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "source": { "type": "string" }
+              }
+            },
+            "description": "Channel summaries. Axis 2 has 3 (gas/oil/solid_fossil); others have 2 (A/B)."
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Warning" }
+          }
+        }
+      },
+      "CountryAxisScore": {
+        "type": "object",
+        "description": "One country's score on one axis (used in per-axis rankings)",
+        "required": ["country", "country_name"],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "country_name": {
+            "type": "string"
+          },
+          "score": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "classification": {
+            "type": ["string", "null"],
+            "enum": ["unconcentrated", "mildly_concentrated", "moderately_concentrated", "highly_concentrated", null]
+          },
+          "audit": {
+            "$ref": "#/components/schemas/AuditBreakdown",
+            "description": "Present if audit data exists for this country on this axis"
+          }
+        }
+      },
+      "AxisDetail": {
+        "type": "object",
+        "description": "Full axis detail across all 27 countries with rankings and statistics",
+        "required": ["axis_id", "axis_slug", "axis_name", "description", "version", "status", "materialized", "unit", "countries_scored", "statistics", "channels", "warnings", "countries"],
+        "properties": {
+          "axis_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "axis_slug": {
+            "type": "string"
+          },
+          "axis_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["FROZEN"]
+          },
+          "materialized": {
+            "type": "boolean"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "countries_scored": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 27,
+            "description": "Number of countries with non-null scores (27 in v0.1)"
+          },
+          "statistics": {
+            "type": "object",
+            "description": "Aggregate statistics across all scored countries",
+            "properties": {
+              "min": {
+                "type": ["number", "null"],
+                "description": "Lowest score"
+              },
+              "max": {
+                "type": ["number", "null"],
+                "description": "Highest score"
+              },
+              "mean": {
+                "type": ["number", "null"],
+                "description": "Arithmetic mean"
+              }
+            }
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "source"],
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "source": { "type": "string" }
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Warning" }
+          },
+          "countries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CountryAxisScore" },
+            "minItems": 27,
+            "maxItems": 27,
+            "description": "All 27 countries sorted by score descending. Nulls last."
+          }
+        }
+      },
+      "ISICountryRow": {
+        "type": "object",
+        "description": "One country's ISI composite with all axis breakdowns",
+        "required": ["country", "country_name", "complete"],
+        "properties": {
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "country_name": {
+            "type": "string"
+          },
+          "axis_1_financial": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "axis_2_energy": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "axis_3_technology": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "axis_4_defense": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "axis_5_critical_inputs": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "axis_6_logistics": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "isi_composite": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "mean(A1..A6). null if any axis null."
+          },
+          "classification": {
+            "type": ["string", "null"],
+            "enum": ["unconcentrated", "mildly_concentrated", "moderately_concentrated", "highly_concentrated", null]
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "true if all 6 axes have non-null scores"
+          }
+        }
+      },
+      "ISIComposite": {
+        "type": "object",
+        "description": "ISI composite scores for all countries with metadata and statistics",
+        "required": ["version", "window", "aggregation_rule", "formula", "countries_complete", "countries_total", "statistics", "countries"],
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "window": {
+            "type": "string"
+          },
+          "aggregation_rule": {
+            "type": "string",
+            "enum": ["unweighted_arithmetic_mean"]
+          },
+          "formula": {
+            "type": "string",
+            "description": "Aggregation formula",
+            "example": "ISI_i = (A1_i + A2_i + A3_i + A4_i + A5_i + A6_i) / 6"
+          },
+          "countries_complete": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 27,
+            "description": "Number of countries with all 6 axes scored (27 in v0.1)"
+          },
+          "countries_total": {
+            "type": "integer",
+            "enum": [27],
+            "description": "Always 27"
+          },
+          "statistics": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": ["number", "null"],
+                "description": "Lowest ISI composite"
+              },
+              "max": {
+                "type": ["number", "null"],
+                "description": "Highest ISI composite"
+              },
+              "mean": {
+                "type": ["number", "null"],
+                "description": "Mean ISI composite"
+              }
+            }
+          },
+          "countries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ISICountryRow" },
+            "minItems": 27,
+            "maxItems": 27,
+            "description": "All 27 countries sorted by isi_composite descending. Nulls last."
+          }
+        }
+      }
+    }
+  }
+}

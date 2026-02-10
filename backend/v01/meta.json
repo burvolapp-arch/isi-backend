@@ -1,0 +1,16 @@
+{
+  "project": "Panargus / International Sovereignty Index (ISI)",
+  "version": "v0.1",
+  "reference_window": "2022–2024",
+  "scope": "EU-27",
+  "num_axes": 6,
+  "num_countries": 27,
+  "aggregation_rule": "unweighted_arithmetic_mean",
+  "aggregation_formula": "ISI_i = (A1_i + A2_i + A3_i + A4_i + A5_i + A6_i) / 6",
+  "score_range": [
+    0.0,
+    1.0
+  ],
+  "interpretation": "higher = more concentrated = more dependent",
+  "generated_by": "export_isi_backend_v01.py"
+}

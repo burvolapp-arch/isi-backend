@@ -1,0 +1,757 @@
+{
+  "country": "DE",
+  "country_name": "Germany",
+  "version": "v0.1",
+  "window": "2022–2024",
+  "isi_composite": 0.26788694,
+  "isi_classification": "moderately_concentrated",
+  "axes_available": 6,
+  "axes_required": 6,
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "axis_name": "Financial Sovereignty",
+      "score": 0.10186464,
+      "classification": "unconcentrated",
+      "driver_statement": "Germany scores 0.1019 on financial sovereignty (unconcentrated). This reflects the concentration of inward banking claims and portfolio debt holdings across foreign creditor countries.",
+      "audit": {
+        "channel_a_concentration": 0.1265348836,
+        "channel_a_volume": 1918721.767,
+        "channel_b_concentration": 0.0794912655,
+        "channel_b_volume": 2115699.072,
+        "score": 0.1018646415,
+        "basis": "BOTH"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Banking Claims Concentration",
+          "source": "BIS Locational Banking Statistics (LBS)",
+          "top_partners": [
+            {
+              "partner": "FR",
+              "share": 0.23557454
+            },
+            {
+              "partner": "GB",
+              "share": 0.20311595
+            },
+            {
+              "partner": "IT",
+              "share": 0.09437486
+            },
+            {
+              "partner": "LU",
+              "share": 0.07986469
+            },
+            {
+              "partner": "NL",
+              "share": 0.05933599
+            },
+            {
+              "partner": "JP",
+              "share": 0.05055974
+            },
+            {
+              "partner": "US",
+              "share": 0.04718454
+            },
+            {
+              "partner": "ES",
+              "share": 0.04639367
+            },
+            {
+              "partner": "IE",
+              "share": 0.03691496
+            },
+            {
+              "partner": "AT",
+              "share": 0.02914761
+            }
+          ],
+          "total_partners": 30
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Portfolio Debt Concentration",
+          "source": "IMF CPIS"
+        }
+      ],
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "MEDIUM",
+          "text": "BIS creditor coverage gap: non-BIS-reporting countries absent as creditors; concentration may be biased upward."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "IMF CPIS participation is voluntary; China does not participate. Portfolio debt concentration may understate true exposure."
+        },
+        {
+          "id": "L-3",
+          "severity": "LOW",
+          "text": "Partial overlap between Channel A (bank claims) and Channel B (portfolio debt securities held by banks)."
+        },
+        {
+          "id": "L-4",
+          "severity": "LOW",
+          "text": "Croatia (HR) absent from Channel B (IMF CPIS). Score reduces to Channel A only."
+        }
+      ]
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "axis_name": "Energy Dependency",
+      "score": 0.3290879,
+      "classification": "moderately_concentrated",
+      "driver_statement": "Germany scores 0.3291 on energy dependency (moderately concentrated). This reflects the concentration of fossil fuel imports (gas, oil, solid fossil fuels) across supplier countries.",
+      "channels": [
+        {
+          "channel_id": "gas",
+          "channel_name": "Natural Gas Import Concentration",
+          "source": "Eurostat nrg_ti_gas",
+          "top_partners": [
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "US",
+              "share": 0.42
+            },
+            {
+              "partner": "US",
+              "share": 0.41999999
+            },
+            {
+              "partner": "NO",
+              "share": 0.23635572
+            },
+            {
+              "partner": "NO",
+              "share": 0.23635572
+            },
+            {
+              "partner": "NL",
+              "share": 0.12259155
+            },
+            {
+              "partner": "NL",
+              "share": 0.12259155
+            }
+          ],
+          "total_partners": 20
+        },
+        {
+          "channel_id": "oil",
+          "channel_name": "Oil Import Concentration",
+          "source": "Eurostat nrg_ti_oil",
+          "top_partners": [
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            }
+          ],
+          "total_partners": 417
+        },
+        {
+          "channel_id": "solid_fossil",
+          "channel_name": "Solid Fossil Fuel Import Concentration",
+          "source": "Eurostat nrg_ti_sff",
+          "top_partners": [
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "NSP",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "NSP",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            }
+          ],
+          "total_partners": 154
+        }
+      ],
+      "fuel_concentrations": {
+        "gas": 0.33741756,
+        "oil": 0.2906298,
+        "solid_fossil": 0.31379308
+      },
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "MEDIUM",
+          "text": "Pipeline gas and LNG not separated. A country importing 50% pipeline gas from Russia and 50% LNG from multiple sources scores as if partially diversified."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "Re-exports and transit flows may distort bilateral attribution across all fuel types."
+        },
+        {
+          "id": "L-3",
+          "severity": "LOW",
+          "text": "No price or contract-duration effects captured. Volume-based concentration only."
+        }
+      ]
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "axis_name": "Technology / Semiconductor Dependency",
+      "score": 0.09762824,
+      "classification": "unconcentrated",
+      "driver_statement": "Germany scores 0.0976 on technology/semiconductor dependency (unconcentrated). This reflects the concentration of semiconductor imports across supplier countries.",
+      "audit": {
+        "channel_a_concentration": 0.08980456937396192,
+        "channel_a_volume": 77036262396.0,
+        "channel_b_concentration": 0.10545191846951978,
+        "channel_b_volume": 77036262396.0,
+        "score": 0.09762824392174085,
+        "basis": "BOTH_CHANNELS"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Aggregate Supplier Concentration",
+          "source": "Eurostat Comext ds-045409",
+          "top_partners": [
+            {
+              "partner": "TW",
+              "share": 0.16366622
+            },
+            {
+              "partner": "NL",
+              "share": 0.14335203
+            },
+            {
+              "partner": "CN",
+              "share": 0.11969864
+            },
+            {
+              "partner": "MY",
+              "share": 0.1059416
+            },
+            {
+              "partner": "PH",
+              "share": 0.06056538
+            },
+            {
+              "partner": "TH",
+              "share": 0.05641532
+            },
+            {
+              "partner": "IE",
+              "share": 0.05126818
+            },
+            {
+              "partner": "JP",
+              "share": 0.04434901
+            },
+            {
+              "partner": "KR",
+              "share": 0.03782792
+            },
+            {
+              "partner": "US",
+              "share": 0.03146132
+            }
+          ],
+          "total_partners": 180
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Category-Weighted Supplier Concentration",
+          "source": "Eurostat Comext ds-045409",
+          "subcategories": [
+            {
+              "category": "legacy_discrete",
+              "concentration": 0.138758682451165,
+              "volume": 12795611692.0
+            },
+            {
+              "category": "legacy_components",
+              "concentration": 0.13640339746444818,
+              "volume": 1000935081.0
+            },
+            {
+              "category": "integrated_circuits",
+              "concentration": 0.09822290367624618,
+              "volume": 63239715623.0
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "W-2",
+          "severity": "MEDIUM",
+          "text": "Re-export blindness: bilateral trade records shipping country, not country of origin."
+        },
+        {
+          "id": "W-3",
+          "severity": "LOW",
+          "text": "Trade concentration does not capture domestic fabrication capacity."
+        },
+        {
+          "id": "W-4",
+          "severity": "LOW",
+          "text": "HS 8542 at HS4 aggregate: integrated circuits not decomposed into subcategories."
+        },
+        {
+          "id": "W-5",
+          "severity": "LOW",
+          "text": "Intra-EU trade included: EU partners appear as suppliers (by design)."
+        },
+        {
+          "id": "W-6",
+          "severity": "LOW",
+          "text": "Three-year window (2022–2024) may include pandemic-era distortions."
+        }
+      ]
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "axis_name": "Defense Industrial Dependency",
+      "score": 0.58266751,
+      "classification": "highly_concentrated",
+      "driver_statement": "Germany scores 0.5827 on defense industrial dependency (highly concentrated). This reflects the concentration of major conventional arms imports across supplier countries.",
+      "audit": {
+        "channel_a_concentration": 0.48976566554228856,
+        "channel_a_volume": 1097.0900000000004,
+        "channel_b_concentration": 0.6755693546658276,
+        "channel_b_volume": 1097.0900000000001,
+        "score": 0.5826675101040582,
+        "basis": "BOTH_CHANNELS",
+        "dependency_semantic": ""
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Aggregate Supplier Concentration",
+          "source": "SIPRI Arms Transfers Database",
+          "top_partners": [
+            {
+              "partner": "US",
+              "share": 0.68184014
+            },
+            {
+              "partner": "IL",
+              "share": 0.13123809
+            },
+            {
+              "partner": "SE",
+              "share": 0.04922112
+            },
+            {
+              "partner": "GB",
+              "share": 0.04557511
+            },
+            {
+              "partner": "FR",
+              "share": 0.0410176
+            },
+            {
+              "partner": "IT",
+              "share": 0.03691584
+            },
+            {
+              "partner": "BE",
+              "share": 0.00888715
+            },
+            {
+              "partner": "CA",
+              "share": 0.00293504
+            },
+            {
+              "partner": "CH",
+              "share": 0.001823
+            },
+            {
+              "partner": "AT",
+              "share": 0.0005469
+            }
+          ],
+          "total_partners": 10
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Capability-Block Weighted Concentration",
+          "source": "SIPRI Arms Transfers Database",
+          "subcategories": [
+            {
+              "category": "air_power",
+              "concentration": 0.5336331232453355,
+              "volume": 369.35
+            },
+            {
+              "category": "land_combat",
+              "concentration": 0.9589839461726162,
+              "volume": 95.48
+            },
+            {
+              "category": "air_missile_defense",
+              "concentration": 1.0,
+              "volume": 0.72
+            },
+            {
+              "category": "naval_combat",
+              "concentration": 0.5078125,
+              "volume": 64.0
+            },
+            {
+              "category": "strike_missile",
+              "concentration": 0.7992314898214208,
+              "volume": 477.0400000000001
+            },
+            {
+              "category": "isr_support",
+              "concentration": 0.42004212325631085,
+              "volume": 90.5
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "MEDIUM",
+          "text": "SIPRI TIV is a volume indicator, not a financial value. Comparability across weapon types is approximate."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "SIPRI covers major conventional weapons only. Small arms, ammunition, MRO, and sustainment contracts are excluded."
+        },
+        {
+          "id": "L-3",
+          "severity": "LOW",
+          "text": "Six-year delivery window (2019–2024) may include legacy contracts not reflecting current strategic posture."
+        },
+        {
+          "id": "L-4",
+          "severity": "LOW",
+          "text": "Regex-based weapon classification may cause edge-case misclassification across capability blocks."
+        },
+        {
+          "id": "L-5",
+          "severity": "LOW",
+          "text": "Countries with no bilateral SIPRI supplier entries are assigned score=0 (zero external concentration). This reflects licensed production, joint EU procurement, or domestic manufacturing."
+        }
+      ]
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "axis_name": "Critical Inputs / Raw Materials Dependency",
+      "score": 0.22312039,
+      "classification": "mildly_concentrated",
+      "driver_statement": "Germany scores 0.2231 on critical inputs dependency (mildly concentrated). This reflects the concentration of critical raw material imports across supplier countries.",
+      "audit": {
+        "channel_a_concentration": 0.18159342443,
+        "channel_a_volume": 9420999524.0,
+        "channel_b_concentration": 0.264647359584,
+        "channel_b_volume": 9420999524.0,
+        "score": 0.223120392007,
+        "basis": "BOTH"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Aggregate Supplier Concentration",
+          "source": "Eurostat Comext ds-045409 (CN8)",
+          "top_partners": [
+            {
+              "partner": "NL",
+              "share": 0.37147582
+            },
+            {
+              "partner": "BE",
+              "share": 0.12379497
+            },
+            {
+              "partner": "NO",
+              "share": 0.11880931
+            },
+            {
+              "partner": "FR",
+              "share": 0.07791974
+            },
+            {
+              "partner": "US",
+              "share": 0.05332646
+            },
+            {
+              "partner": "CN",
+              "share": 0.04496848
+            },
+            {
+              "partner": "AT",
+              "share": 0.03506457
+            },
+            {
+              "partner": "GB",
+              "share": 0.02089673
+            },
+            {
+              "partner": "FI",
+              "share": 0.01828607
+            },
+            {
+              "partner": "LU",
+              "share": 0.01823997
+            }
+          ],
+          "total_partners": 91
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Material-Group Weighted Supplier Concentration",
+          "source": "Eurostat Comext ds-045409 (CN8)",
+          "subcategories": [
+            {
+              "category": "rare_earths",
+              "concentration": 0.15781365948,
+              "volume": 148040866.0
+            },
+            {
+              "category": "battery_metals",
+              "concentration": 0.351569082929,
+              "volume": 4425035645.0
+            },
+            {
+              "category": "defense_industrial_metals",
+              "concentration": 0.195380840164,
+              "volume": 1646575995.0
+            },
+            {
+              "category": "semiconductor_inputs",
+              "concentration": 0.173578520422,
+              "volume": 3042224419.0
+            },
+            {
+              "category": "fertilizer_chokepoints",
+              "concentration": 0.404718373599,
+              "volume": 159122599.0
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "HIGH",
+          "text": "Re-export and entrepot masking: bilateral trade records shipping country, not origin. 13 of 27 reporters source >50% from EU partners."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "Small-economy amplification: CY, MT, LU produce mechanically high HHI values due to low total import volumes."
+        },
+        {
+          "id": "L-3",
+          "severity": "MEDIUM",
+          "text": "CN8 scope covers upstream materials only. Midstream processing and downstream products excluded. China's role understated."
+        },
+        {
+          "id": "L-4",
+          "severity": "LOW",
+          "text": "Confidential trade suppression: Q-prefix partner codes excluded. May cause underestimation for some partners."
+        }
+      ]
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "axis_name": "Logistics / Freight Dependency",
+      "score": 0.27295297,
+      "classification": "moderately_concentrated",
+      "driver_statement": "Germany scores 0.2730 on logistics/freight dependency (moderately concentrated). This reflects the concentration of international freight across transport modes and bilateral partners.",
+      "audit": {
+        "channel_a_concentration": 0.3484673127,
+        "channel_a_volume": 2068347.0,
+        "channel_b_concentration": 0.1385989869,
+        "channel_b_volume": 1162525.0,
+        "score": 0.27295297,
+        "basis": "BOTH"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Transport Mode Concentration",
+          "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw"
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Partner Concentration per Transport Mode",
+          "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw",
+          "top_partners": [
+            {
+              "partner": "IT",
+              "share": 0.29155559
+            },
+            {
+              "partner": "NL",
+              "share": 0.24790196
+            },
+            {
+              "partner": "AT",
+              "share": 0.18335626
+            },
+            {
+              "partner": "AT",
+              "share": 0.14029641
+            },
+            {
+              "partner": "FR",
+              "share": 0.13757592
+            },
+            {
+              "partner": "BE",
+              "share": 0.12789926
+            },
+            {
+              "partner": "CH",
+              "share": 0.10219096
+            },
+            {
+              "partner": "CH",
+              "share": 0.09508556
+            },
+            {
+              "partner": "PL",
+              "share": 0.09378852
+            },
+            {
+              "partner": "CZ",
+              "share": 0.07816665
+            }
+          ],
+          "total_partners": 64,
+          "subcategories": [
+            {
+              "category": "road",
+              "concentration": 0.13701959,
+              "volume": 1022977.0
+            },
+            {
+              "category": "rail",
+              "concentration": 0.1501769868,
+              "volume": 139548.0
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "W-1",
+          "severity": "HIGH",
+          "text": "Entrepot/hub masking: NL and BE scores understate their systemic importance as continental freight hubs; countries trading through NL/BE have inflated partner concentration masking true origin."
+        },
+        {
+          "id": "W-2",
+          "severity": "MEDIUM",
+          "text": "Geographic determinism: MT (Channel A HHI = 1.0), CY, and landlocked countries have structurally constrained scores reflecting geography, not policy choices."
+        },
+        {
+          "id": "W-3",
+          "severity": "MEDIUM",
+          "text": "Maritime-energy overlap: maritime tonnage includes energy commodity transport, creating partial redundancy with Axis 3 (Energy)."
+        },
+        {
+          "id": "W-4",
+          "severity": "MEDIUM",
+          "text": "Tonnage blindness: all freight is treated equally per tonne regardless of commodity type; strategic commodity differentiation is absent."
+        },
+        {
+          "id": "W-5",
+          "severity": "LOW",
+          "text": "No route/chokepoint data: the axis cannot detect Suez, Bosporus, or any physical corridor dependency."
+        }
+      ]
+    }
+  ]
+}

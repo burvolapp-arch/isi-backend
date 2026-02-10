@@ -1,0 +1,708 @@
+{
+  "country": "EE",
+  "country_name": "Estonia",
+  "version": "v0.1",
+  "window": "2022–2024",
+  "isi_composite": 0.34332177,
+  "isi_classification": "moderately_concentrated",
+  "axes_available": 6,
+  "axes_required": 6,
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "axis_name": "Financial Sovereignty",
+      "score": 0.18172493,
+      "classification": "mildly_concentrated",
+      "driver_statement": "Estonia scores 0.1817 on financial sovereignty (mildly concentrated). This reflects the concentration of inward banking claims and portfolio debt holdings across foreign creditor countries.",
+      "audit": {
+        "channel_a_concentration": 0.3015716329,
+        "channel_a_volume": 3774.974,
+        "channel_b_concentration": 0.0820390951,
+        "channel_b_volume": 4538.44,
+        "score": 0.181724928,
+        "basis": "BOTH"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Banking Claims Concentration",
+          "source": "BIS Locational Banking Statistics (LBS)",
+          "top_partners": [
+            {
+              "partner": "SE",
+              "share": 0.48671646
+            },
+            {
+              "partner": "DE",
+              "share": 0.20132589
+            },
+            {
+              "partner": "FI",
+              "share": 0.14322059
+            },
+            {
+              "partner": "AT",
+              "share": 0.03182221
+            },
+            {
+              "partner": "CH",
+              "share": 0.02905345
+            },
+            {
+              "partner": "BE",
+              "share": 0.02646641
+            },
+            {
+              "partner": "LU",
+              "share": 0.02007034
+            },
+            {
+              "partner": "FR",
+              "share": 0.01589415
+            },
+            {
+              "partner": "ES",
+              "share": 0.01139187
+            },
+            {
+              "partner": "GB",
+              "share": 0.0103312
+            }
+          ],
+          "total_partners": 18
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Portfolio Debt Concentration",
+          "source": "IMF CPIS"
+        }
+      ],
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "MEDIUM",
+          "text": "BIS creditor coverage gap: non-BIS-reporting countries absent as creditors; concentration may be biased upward."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "IMF CPIS participation is voluntary; China does not participate. Portfolio debt concentration may understate true exposure."
+        },
+        {
+          "id": "L-3",
+          "severity": "LOW",
+          "text": "Partial overlap between Channel A (bank claims) and Channel B (portfolio debt securities held by banks)."
+        },
+        {
+          "id": "L-4",
+          "severity": "LOW",
+          "text": "Croatia (HR) absent from Channel B (IMF CPIS). Score reduces to Channel A only."
+        }
+      ]
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "axis_name": "Energy Dependency",
+      "score": 0.43935251,
+      "classification": "moderately_concentrated",
+      "driver_statement": "Estonia scores 0.4394 on energy dependency (moderately concentrated). This reflects the concentration of fossil fuel imports (gas, oil, solid fossil fuels) across supplier countries.",
+      "channels": [
+        {
+          "channel_id": "gas",
+          "channel_name": "Natural Gas Import Concentration",
+          "source": "Eurostat nrg_ti_gas",
+          "top_partners": [
+            {
+              "partner": "FI",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "FI",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            }
+          ],
+          "total_partners": 4
+        },
+        {
+          "channel_id": "oil",
+          "channel_name": "Oil Import Concentration",
+          "source": "Eurostat nrg_ti_oil",
+          "top_partners": [
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "FI",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "FI",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "FI",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            }
+          ],
+          "total_partners": 166
+        },
+        {
+          "channel_id": "solid_fossil",
+          "channel_name": "Solid Fossil Fuel Import Concentration",
+          "source": "Eurostat nrg_ti_sff",
+          "top_partners": [
+            {
+              "partner": "KZ",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "KZ",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            },
+            {
+              "partner": "KZ",
+              "share": 0.5
+            },
+            {
+              "partner": "TOTAL",
+              "share": 0.5
+            }
+          ],
+          "total_partners": 6
+        }
+      ],
+      "fuel_concentrations": {
+        "gas": 0.5,
+        "oil": 0.34748002,
+        "solid_fossil": 0.5
+      },
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "MEDIUM",
+          "text": "Pipeline gas and LNG not separated. A country importing 50% pipeline gas from Russia and 50% LNG from multiple sources scores as if partially diversified."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "Re-exports and transit flows may distort bilateral attribution across all fuel types."
+        },
+        {
+          "id": "L-3",
+          "severity": "LOW",
+          "text": "No price or contract-duration effects captured. Volume-based concentration only."
+        }
+      ]
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "axis_name": "Technology / Semiconductor Dependency",
+      "score": 0.22713142,
+      "classification": "mildly_concentrated",
+      "driver_statement": "Estonia scores 0.2271 on technology/semiconductor dependency (mildly concentrated). This reflects the concentration of semiconductor imports across supplier countries.",
+      "audit": {
+        "channel_a_concentration": 0.22408562326328624,
+        "channel_a_volume": 888259685.0,
+        "channel_b_concentration": 0.23017721823183743,
+        "channel_b_volume": 888259685.0,
+        "score": 0.22713142074756182,
+        "basis": "BOTH_CHANNELS"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Aggregate Supplier Concentration",
+          "source": "Eurostat Comext ds-045409",
+          "top_partners": [
+            {
+              "partner": "NL",
+              "share": 0.42451748
+            },
+            {
+              "partner": "SE",
+              "share": 0.13435364
+            },
+            {
+              "partner": "DE",
+              "share": 0.13134984
+            },
+            {
+              "partner": "BE",
+              "share": 0.0600747
+            },
+            {
+              "partner": "CN",
+              "share": 0.03036792
+            },
+            {
+              "partner": "FI",
+              "share": 0.03031184
+            },
+            {
+              "partner": "MY",
+              "share": 0.02781264
+            },
+            {
+              "partner": "PL",
+              "share": 0.02485437
+            },
+            {
+              "partner": "TW",
+              "share": 0.024029
+            },
+            {
+              "partner": "LV",
+              "share": 0.02097328
+            }
+          ],
+          "total_partners": 66
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Category-Weighted Supplier Concentration",
+          "source": "Eurostat Comext ds-045409",
+          "subcategories": [
+            {
+              "category": "legacy_discrete",
+              "concentration": 0.19920468760988788,
+              "volume": 102673559.0
+            },
+            {
+              "category": "legacy_components",
+              "concentration": 0.1559642161313198,
+              "volume": 19820404.0
+            },
+            {
+              "category": "integrated_circuits",
+              "concentration": 0.2362508664773215,
+              "volume": 765765722.0
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "W-2",
+          "severity": "MEDIUM",
+          "text": "Re-export blindness: bilateral trade records shipping country, not country of origin."
+        },
+        {
+          "id": "W-3",
+          "severity": "LOW",
+          "text": "Trade concentration does not capture domestic fabrication capacity."
+        },
+        {
+          "id": "W-4",
+          "severity": "LOW",
+          "text": "HS 8542 at HS4 aggregate: integrated circuits not decomposed into subcategories."
+        },
+        {
+          "id": "W-5",
+          "severity": "LOW",
+          "text": "Intra-EU trade included: EU partners appear as suppliers (by design)."
+        },
+        {
+          "id": "W-6",
+          "severity": "LOW",
+          "text": "Three-year window (2022–2024) may include pandemic-era distortions."
+        }
+      ]
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "axis_name": "Defense Industrial Dependency",
+      "score": 0.35561474,
+      "classification": "moderately_concentrated",
+      "driver_statement": "Estonia scores 0.3556 on defense industrial dependency (moderately concentrated). This reflects the concentration of major conventional arms imports across supplier countries.",
+      "audit": {
+        "channel_a_concentration": 0.22388334033889506,
+        "channel_a_volume": 170.12000000000003,
+        "channel_b_concentration": 0.4873461467332578,
+        "channel_b_volume": 170.12,
+        "score": 0.3556147435360764,
+        "basis": "BOTH_CHANNELS",
+        "dependency_semantic": ""
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Aggregate Supplier Concentration",
+          "source": "SIPRI Arms Transfers Database",
+          "top_partners": [
+            {
+              "partner": "IL",
+              "share": 0.36591818
+            },
+            {
+              "partner": "KR",
+              "share": 0.2539384
+            },
+            {
+              "partner": "NL",
+              "share": 0.09405126
+            },
+            {
+              "partner": "PL",
+              "share": 0.0785328
+            },
+            {
+              "partner": "FR",
+              "share": 0.06136845
+            },
+            {
+              "partner": "DE",
+              "share": 0.05925229
+            },
+            {
+              "partner": "US",
+              "share": 0.04873031
+            },
+            {
+              "partner": "NO",
+              "share": 0.02645192
+            },
+            {
+              "partner": "XX",
+              "share": 0.01175641
+            }
+          ],
+          "total_partners": 9
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Capability-Block Weighted Concentration",
+          "source": "SIPRI Arms Transfers Database",
+          "subcategories": [
+            {
+              "category": "air_power",
+              "concentration": 1.0,
+              "volume": 2.2
+            },
+            {
+              "category": "land_combat",
+              "concentration": 0.334464182900913,
+              "volume": 84.79
+            },
+            {
+              "category": "air_missile_defense",
+              "concentration": 0.5075263046395029,
+              "volume": 23.799999999999997
+            },
+            {
+              "category": "strike_missile",
+              "concentration": 0.6136019129064105,
+              "volume": 49.33
+            },
+            {
+              "category": "isr_support",
+              "concentration": 1.0,
+              "volume": 10.0
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "MEDIUM",
+          "text": "SIPRI TIV is a volume indicator, not a financial value. Comparability across weapon types is approximate."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "SIPRI covers major conventional weapons only. Small arms, ammunition, MRO, and sustainment contracts are excluded."
+        },
+        {
+          "id": "L-3",
+          "severity": "LOW",
+          "text": "Six-year delivery window (2019–2024) may include legacy contracts not reflecting current strategic posture."
+        },
+        {
+          "id": "L-4",
+          "severity": "LOW",
+          "text": "Regex-based weapon classification may cause edge-case misclassification across capability blocks."
+        },
+        {
+          "id": "L-5",
+          "severity": "LOW",
+          "text": "Countries with no bilateral SIPRI supplier entries are assigned score=0 (zero external concentration). This reflects licensed production, joint EU procurement, or domestic manufacturing."
+        }
+      ]
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "axis_name": "Critical Inputs / Raw Materials Dependency",
+      "score": 0.38622776,
+      "classification": "moderately_concentrated",
+      "driver_statement": "Estonia scores 0.3862 on critical inputs dependency (moderately concentrated). This reflects the concentration of critical raw material imports across supplier countries.",
+      "audit": {
+        "channel_a_concentration": 0.281764802174,
+        "channel_a_volume": 158108819.0,
+        "channel_b_concentration": 0.490690710868,
+        "channel_b_volume": 158108819.0,
+        "score": 0.386227756521,
+        "basis": "BOTH"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Aggregate Supplier Concentration",
+          "source": "Eurostat Comext ds-045409 (CN8)",
+          "top_partners": [
+            {
+              "partner": "RU",
+              "share": 0.50209713
+            },
+            {
+              "partner": "NL",
+              "share": 0.09956295
+            },
+            {
+              "partner": "SA",
+              "share": 0.0860416
+            },
+            {
+              "partner": "JP",
+              "share": 0.06636701
+            },
+            {
+              "partner": "KZ",
+              "share": 0.05579121
+            },
+            {
+              "partner": "DK",
+              "share": 0.03505033
+            },
+            {
+              "partner": "DE",
+              "share": 0.03465476
+            },
+            {
+              "partner": "UZ",
+              "share": 0.03379601
+            },
+            {
+              "partner": "CN",
+              "share": 0.02830989
+            },
+            {
+              "partner": "US",
+              "share": 0.01424753
+            }
+          ],
+          "total_partners": 44
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Material-Group Weighted Supplier Concentration",
+          "source": "Eurostat Comext ds-045409 (CN8)",
+          "subcategories": [
+            {
+              "category": "rare_earths",
+              "concentration": 0.896727650006,
+              "volume": 61845418.0
+            },
+            {
+              "category": "battery_metals",
+              "concentration": 0.466808965916,
+              "volume": 14376500.0
+            },
+            {
+              "category": "defense_industrial_metals",
+              "concentration": 0.154699877328,
+              "volume": 68034380.0
+            },
+            {
+              "category": "semiconductor_inputs",
+              "concentration": 0.42273966653,
+              "volume": 2062301.0
+            },
+            {
+              "category": "fertilizer_chokepoints",
+              "concentration": 0.340640519612,
+              "volume": 11790220.0
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "L-1",
+          "severity": "HIGH",
+          "text": "Re-export and entrepot masking: bilateral trade records shipping country, not origin. 13 of 27 reporters source >50% from EU partners."
+        },
+        {
+          "id": "L-2",
+          "severity": "MEDIUM",
+          "text": "Small-economy amplification: CY, MT, LU produce mechanically high HHI values due to low total import volumes."
+        },
+        {
+          "id": "L-3",
+          "severity": "MEDIUM",
+          "text": "CN8 scope covers upstream materials only. Midstream processing and downstream products excluded. China's role understated."
+        },
+        {
+          "id": "L-4",
+          "severity": "LOW",
+          "text": "Confidential trade suppression: Q-prefix partner codes excluded. May cause underestimation for some partners."
+        }
+      ]
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "axis_name": "Logistics / Freight Dependency",
+      "score": 0.46987927,
+      "classification": "moderately_concentrated",
+      "driver_statement": "Estonia scores 0.4699 on logistics/freight dependency (moderately concentrated). This reflects the concentration of international freight across transport modes and bilateral partners.",
+      "audit": {
+        "channel_a_concentration": 0.5444082077,
+        "channel_a_volume": 80256.0,
+        "channel_b_concentration": 0.2385801673,
+        "channel_b_volume": 25860.0,
+        "score": 0.4698792665,
+        "basis": "BOTH"
+      },
+      "channels": [
+        {
+          "channel_id": "A",
+          "channel_name": "Transport Mode Concentration",
+          "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw"
+        },
+        {
+          "channel_id": "B",
+          "channel_name": "Partner Concentration per Transport Mode",
+          "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw",
+          "top_partners": [
+            {
+              "partner": "RU",
+              "share": 0.78033794
+            },
+            {
+              "partner": "FI",
+              "share": 0.31884245
+            },
+            {
+              "partner": "LV",
+              "share": 0.26707086
+            },
+            {
+              "partner": "KZ",
+              "share": 0.09600614
+            },
+            {
+              "partner": "LV",
+              "share": 0.09178187
+            },
+            {
+              "partner": "RU",
+              "share": 0.0875473
+            },
+            {
+              "partner": "SE",
+              "share": 0.06867045
+            },
+            {
+              "partner": "DE",
+              "share": 0.06523048
+            },
+            {
+              "partner": "LT",
+              "share": 0.05607155
+            },
+            {
+              "partner": "IT",
+              "share": 0.02631579
+            }
+          ],
+          "total_partners": 34,
+          "subcategories": [
+            {
+              "category": "road",
+              "concentration": 0.1951132651,
+              "volume": 23256.0
+            },
+            {
+              "category": "rail",
+              "concentration": 0.6267776622,
+              "volume": 2604.0
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "id": "W-1",
+          "severity": "HIGH",
+          "text": "Entrepot/hub masking: NL and BE scores understate their systemic importance as continental freight hubs; countries trading through NL/BE have inflated partner concentration masking true origin."
+        },
+        {
+          "id": "W-2",
+          "severity": "MEDIUM",
+          "text": "Geographic determinism: MT (Channel A HHI = 1.0), CY, and landlocked countries have structurally constrained scores reflecting geography, not policy choices."
+        },
+        {
+          "id": "W-3",
+          "severity": "MEDIUM",
+          "text": "Maritime-energy overlap: maritime tonnage includes energy commodity transport, creating partial redundancy with Axis 3 (Energy)."
+        },
+        {
+          "id": "W-4",
+          "severity": "MEDIUM",
+          "text": "Tonnage blindness: all freight is treated equally per tonne regardless of commodity type; strategic commodity differentiation is absent."
+        },
+        {
+          "id": "W-5",
+          "severity": "LOW",
+          "text": "No route/chokepoint data: the axis cannot detect Suez, Bosporus, or any physical corridor dependency."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,435 @@
+{
+  "axis_id": 6,
+  "axis_slug": "logistics",
+  "axis_name": "Logistics / Freight Dependency",
+  "description": "Concentration of international freight across transport modes and bilateral freight partners per mode.",
+  "version": "v0.1",
+  "status": "FROZEN",
+  "materialized": true,
+  "unit": "THS_T (thousand tonnes)",
+  "countries_scored": 27,
+  "statistics": {
+    "min": 0.27295297,
+    "max": 1.0,
+    "mean": 0.51757723
+  },
+  "channels": [
+    {
+      "id": "A",
+      "name": "Transport Mode Concentration",
+      "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw"
+    },
+    {
+      "id": "B",
+      "name": "Partner Concentration per Transport Mode",
+      "source": "Eurostat tran_hv_frmod / tran_r_frgo / mar_sg_am_cw"
+    }
+  ],
+  "warnings": [
+    {
+      "id": "W-1",
+      "severity": "HIGH",
+      "text": "Entrepot/hub masking: NL and BE scores understate their systemic importance as continental freight hubs; countries trading through NL/BE have inflated partner concentration masking true origin."
+    },
+    {
+      "id": "W-2",
+      "severity": "MEDIUM",
+      "text": "Geographic determinism: MT (Channel A HHI = 1.0), CY, and landlocked countries have structurally constrained scores reflecting geography, not policy choices."
+    },
+    {
+      "id": "W-3",
+      "severity": "MEDIUM",
+      "text": "Maritime-energy overlap: maritime tonnage includes energy commodity transport, creating partial redundancy with Axis 3 (Energy)."
+    },
+    {
+      "id": "W-4",
+      "severity": "MEDIUM",
+      "text": "Tonnage blindness: all freight is treated equally per tonne regardless of commodity type; strategic commodity differentiation is absent."
+    },
+    {
+      "id": "W-5",
+      "severity": "LOW",
+      "text": "No route/chokepoint data: the axis cannot detect Suez, Bosporus, or any physical corridor dependency."
+    }
+  ],
+  "countries": [
+    {
+      "country": "MT",
+      "country_name": "Malta",
+      "score": 1.0,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 1.0,
+        "channel_a_volume": 12099.0,
+        "channel_b_concentration": 0.0,
+        "channel_b_volume": 0.0,
+        "score": 1.0,
+        "basis": "A_ONLY"
+      }
+    },
+    {
+      "country": "CY",
+      "country_name": "Cyprus",
+      "score": 0.94106062,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.955251554,
+        "channel_a_volume": 17381.0,
+        "channel_b_concentration": 0.3213302694,
+        "channel_b_volume": 398.0,
+        "score": 0.9410606168,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "FI",
+      "country_name": "Finland",
+      "score": 0.79733123,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.8128320091,
+        "channel_a_volume": 211262.0,
+        "channel_b_concentration": 0.6488782031,
+        "channel_b_volume": 22059.0,
+        "score": 0.7973312311,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "SE",
+      "country_name": "Sweden",
+      "score": 0.75512656,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.7966047962,
+        "channel_a_volume": 369140.0,
+        "channel_b_concentration": 0.3941307164,
+        "channel_b_volume": 42414.0,
+        "score": 0.7551265561,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "EL",
+      "country_name": "Greece",
+      "score": 0.71982808,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.784476754,
+        "channel_a_volume": 319129.0,
+        "channel_b_concentration": 0.1909432535,
+        "channel_b_volume": 39009.0,
+        "score": 0.7198280758,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "DK",
+      "country_name": "Denmark",
+      "score": 0.64230809,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.6963320779,
+        "channel_a_volume": 204397.0,
+        "channel_b_concentration": 0.3514445825,
+        "channel_b_volume": 37964.0,
+        "score": 0.6423080853,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "LU",
+      "country_name": "Luxembourg",
+      "score": 0.61858285,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.9188528685,
+        "channel_a_volume": 135276.0,
+        "channel_b_concentration": 0.3123685563,
+        "channel_b_volume": 132650.0,
+        "score": 0.6185828536,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "IE",
+      "country_name": "Ireland",
+      "score": 0.61373023,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.5308433587,
+        "channel_a_volume": 155954.0,
+        "channel_b_concentration": 0.8342820091,
+        "channel_b_volume": 58610.0,
+        "score": 0.613730233,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "CZ",
+      "country_name": "Czechia",
+      "score": 0.529481,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.8213436795,
+        "channel_a_volume": 565877.0,
+        "channel_b_concentration": 0.237568278,
+        "channel_b_volume": 565780.0,
+        "score": 0.5294809979,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "AT",
+      "country_name": "Austria",
+      "score": 0.52592111,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.6510114962,
+        "channel_a_volume": 304333.0,
+        "channel_b_concentration": 0.3943151312,
+        "channel_b_volume": 289266.0,
+        "score": 0.5259211057,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "PT",
+      "country_name": "Portugal",
+      "score": 0.50778629,
+      "classification": "highly_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.4961325506,
+        "channel_a_volume": 302704.0,
+        "channel_b_concentration": 0.5316119864,
+        "channel_b_volume": 148060.0,
+        "score": 0.507786288,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "PL",
+      "country_name": "Poland",
+      "score": 0.48860717,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.7498553323,
+        "channel_a_volume": 2251634.0,
+        "channel_b_concentration": 0.1944685063,
+        "channel_b_volume": 1999857.0,
+        "score": 0.4886071651,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "SK",
+      "country_name": "Slovakia",
+      "score": 0.48550648,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.7921147771,
+        "channel_a_volume": 301373.0,
+        "channel_b_concentration": 0.1743292387,
+        "channel_b_volume": 296948.0,
+        "score": 0.4855064848,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "IT",
+      "country_name": "Italy",
+      "score": 0.47781001,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.5509228825,
+        "channel_a_volume": 1144442.0,
+        "channel_b_concentration": 0.2333773891,
+        "channel_b_volume": 342317.0,
+        "score": 0.4778100103,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "EE",
+      "country_name": "Estonia",
+      "score": 0.46987927,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.5444082077,
+        "channel_a_volume": 80256.0,
+        "channel_b_concentration": 0.2385801673,
+        "channel_b_volume": 25860.0,
+        "score": 0.4698792665,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "HU",
+      "country_name": "Hungary",
+      "score": 0.46578765,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.805639822,
+        "channel_a_volume": 431825.0,
+        "channel_b_concentration": 0.1178944408,
+        "channel_b_volume": 421844.0,
+        "score": 0.4657876514,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "SI",
+      "country_name": "Slovenia",
+      "score": 0.44714621,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.6436992086,
+        "channel_a_volume": 293513.0,
+        "channel_b_concentration": 0.216373532,
+        "channel_b_volume": 249990.0,
+        "score": 0.4471462073,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "ES",
+      "country_name": "Spain",
+      "score": 0.43235135,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.4969373248,
+        "channel_a_volume": 1858823.0,
+        "channel_b_concentration": 0.3085502566,
+        "channel_b_volume": 969732.0,
+        "score": 0.4323513548,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "LV",
+      "country_name": "Latvia",
+      "score": 0.36822299,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.456664514,
+        "channel_a_volume": 178743.0,
+        "channel_b_concentration": 0.2115158426,
+        "channel_b_volume": 100878.0,
+        "score": 0.3682229889,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "BG",
+      "country_name": "Bulgaria",
+      "score": 0.36290606,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.4830369816,
+        "channel_a_volume": 203488.0,
+        "channel_b_concentration": 0.1812991286,
+        "channel_b_volume": 134605.0,
+        "score": 0.3629060599,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "HR",
+      "country_name": "Croatia",
+      "score": 0.357988,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.5067867709,
+        "channel_a_volume": 180851.0,
+        "channel_b_concentration": 0.1628577907,
+        "channel_b_volume": 137910.0,
+        "score": 0.357987998,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "NL",
+      "country_name": "Netherlands",
+      "score": 0.3549193,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.3450451478,
+        "channel_a_volume": 2846181.0,
+        "channel_b_concentration": 0.3787759129,
+        "channel_b_volume": 1178022.0,
+        "score": 0.3549192976,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "FR",
+      "country_name": "France",
+      "score": 0.35293643,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.4150624313,
+        "channel_a_volume": 1072425.0,
+        "channel_b_concentration": 0.2170004644,
+        "channel_b_volume": 490124.0,
+        "score": 0.3529364285,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "BE",
+      "country_name": "Belgium",
+      "score": 0.35205038,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.344044153,
+        "channel_a_volume": 1382192.0,
+        "channel_b_concentration": 0.3759061078,
+        "channel_b_volume": 463878.0,
+        "score": 0.3520503824,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "LT",
+      "country_name": "Lithuania",
+      "score": 0.34689716,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.4786970482,
+        "channel_a_volume": 207360.0,
+        "channel_b_concentration": 0.1368407079,
+        "channel_b_volume": 130108.0,
+        "score": 0.3468971598,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "RO",
+      "country_name": "Romania",
+      "score": 0.28746783,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.3858562882,
+        "channel_a_volume": 381923.0,
+        "channel_b_concentration": 0.1023284348,
+        "channel_b_volume": 202965.0,
+        "score": 0.2874678262,
+        "basis": "BOTH"
+      }
+    },
+    {
+      "country": "DE",
+      "country_name": "Germany",
+      "score": 0.27295297,
+      "classification": "moderately_concentrated",
+      "audit": {
+        "channel_a_concentration": 0.3484673127,
+        "channel_a_volume": 2068347.0,
+        "channel_b_concentration": 0.1385989869,
+        "channel_b_volume": 1162525.0,
+        "score": 0.27295297,
+        "basis": "BOTH"
+      }
+    }
+  ]
+}
