@@ -372,22 +372,30 @@ def root(request: Request) -> dict:
 
 
 @app.get("/health")
-@limiter.limit("60/minute")
-def health(request: Request) -> dict:
-    """Health check. Returns status of backend data availability.
+def health(request: Request) -> JSONResponse:
+    """Liveness probe. ALWAYS returns HTTP 200 — never 503, never raises.
 
-    Safe fields only — no filesystem paths, no internal state.
+    Railway (and any orchestrator) requires 200 for liveness.
+    Business-level degradation is reported in the JSON body, not the status code.
     """
-    data_present = _data_available()
-    counts = _count_data_files() if BACKEND_ROOT.is_dir() else {"country_files": 0, "axis_files": 0}
+    try:
+        data_present = _data_available()
+        counts = _count_data_files() if BACKEND_ROOT.is_dir() else {"country_files": 0, "axis_files": 0}
+        file_count = counts["country_files"] + counts["axis_files"]
+    except Exception:
+        data_present = False
+        file_count = 0
 
-    return {
-        "status": "ok" if data_present else "degraded",
-        "version": "0.1.0",
-        "data_present": data_present,
-        "data_file_count": counts["country_files"] + counts["axis_files"],
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "healthy" if data_present else "degraded",
+            "version": "0.1.0",
+            "data_present": data_present,
+            "data_file_count": file_count,
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+    )
 
 
 @app.get("/ready")
