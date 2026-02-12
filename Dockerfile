@@ -1,7 +1,8 @@
 # ISI API — Production Container (hardened)
 # No build-time secrets, no dev tools, non-root user, minimal surface.
+# backend/ MUST contain v01/ with all 37+ pre-materialized JSON artifacts.
 
-FROM python:3.11-slim AS base
+FROM python:3.11-slim
 
 # Prevent .pyc files and enable unbuffered stdout for logging
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,15 +19,10 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --no-compile -r /app/requirements.txt && \
     rm -rf /root/.cache /tmp/*
 
-# Copy application code only
-COPY backend/__init__.py /app/backend/__init__.py
-COPY backend/isi_api_v01.py /app/backend/isi_api_v01.py
-COPY backend/security.py /app/backend/security.py
-
-# Copy pre-materialized data if present (optional at build time).
-# The wildcard pattern avoids a build failure when backend/v01/ does not exist.
-# If v01/ is absent, the API boots in degraded mode (/health reports "degraded").
-COPY backend/v0[1]/ /app/backend/v01/
+# Copy entire backend/ — application code + pre-materialized v01/ artifacts.
+# No globs, no optional copies. If backend/v01/ is missing, the build still
+# succeeds but /health will report data_present=false (by design).
+COPY backend/ /app/backend/
 
 # Switch to non-root user
 USER isi
