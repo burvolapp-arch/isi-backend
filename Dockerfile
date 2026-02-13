@@ -29,14 +29,16 @@ USER isi
 
 EXPOSE 8000
 
-# Production: gunicorn with uvicorn workers
-# Exec-form with sh -c so $PORT is expanded at runtime AND gunicorn replaces
-# the shell as PID 1 (correct signal handling for Railway graceful shutdown).
-# Railway injects $PORT dynamically; falls back to 8000 for local/docker-compose.
-# --timeout 30:       kill workers that hang > 30s
-# --graceful-timeout 10: allow 10s for graceful shutdown
-# --keep-alive 5:     close idle keepalive connections after 5s
-# --max-requests 2000: recycle workers to prevent memory leaks
-# --max-requests-jitter 200: stagger recycling across workers
-# --access-logfile -: log to stdout for Railway
-CMD ["sh", "-c", "exec gunicorn backend.isi_api_v01:app --bind 0.0.0.0:${PORT:-8000} --worker-class uvicorn.workers.UvicornWorker --workers 2 --timeout 30 --graceful-timeout 10 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile -"]
+# Production: gunicorn as PID 1 with uvicorn workers
+# Exec form — gunicorn IS PID 1, receives SIGTERM directly.
+# Hardcoded to port 8000 — matches Railway Public Networking configuration.
+CMD ["gunicorn", "backend.isi_api_v01:app", \
+     "--bind", "0.0.0.0:8000", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--workers", "2", \
+     "--timeout", "120", \
+     "--graceful-timeout", "10", \
+     "--keep-alive", "5", \
+     "--max-requests", "2000", \
+     "--max-requests-jitter", "200", \
+     "--access-logfile", "-"]
