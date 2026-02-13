@@ -27,18 +27,10 @@ COPY backend/ /app/backend/
 # Switch to non-root user
 USER isi
 
-EXPOSE 8000
+EXPOSE 8080
 
-# Production: gunicorn as PID 1 with uvicorn workers
-# Exec form — gunicorn IS PID 1, receives SIGTERM directly.
-# Hardcoded to port 8000 — matches Railway Public Networking configuration.
-CMD ["gunicorn", "backend.isi_api_v01:app", \
-     "--bind", "0.0.0.0:8000", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "2", \
-     "--timeout", "120", \
-     "--graceful-timeout", "10", \
-     "--keep-alive", "5", \
-     "--max-requests", "2000", \
-     "--max-requests-jitter", "200", \
-     "--access-logfile", "-"]
+# Production: gunicorn as PID 1 with uvicorn workers.
+# Shell form with exec — $PORT is expanded at runtime by sh, then exec
+# replaces sh so gunicorn becomes PID 1 (correct signal handling).
+# Railway injects PORT dynamically; no fallback, no hardcoded port.
+CMD ["sh", "-c", "exec gunicorn backend.isi_api_v01:app --bind 0.0.0.0:${PORT} --worker-class uvicorn.workers.UvicornWorker --workers 2 --timeout 120 --graceful-timeout 10 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile -"]
