@@ -38,6 +38,8 @@ import logging
 import os
 import re
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -142,10 +144,75 @@ def _build_docs_kwargs() -> dict[str, Any]:
     return {"docs_url": "/docs", "redoc_url": "/redoc"}
 
 
+# ---------------------------------------------------------------------------
+# Lifespan — replaces deprecated @app.on_event("startup")
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup/shutdown lifecycle for the ISI API.
+
+    Startup: validate backend data, verify manifest integrity.
+    If REQUIRE_DATA=1 and data is missing or corrupt, exit immediately.
+    """
+    logger.info(json.dumps({
+        "event": "startup",
+        "env": ENV,
+        "require_data": REQUIRE_DATA,
+        "cors_origins": len(_parse_origins()),
+        "docs_enabled": ENABLE_DOCS or ENV == "dev",
+        "rate_limit_backend": "redis" if REDIS_URL else "memory",
+    }))
+
+    data_present = _data_available()
+
+    # Integrity verification
+    if BACKEND_ROOT.is_dir():
+        result = verify_manifest(BACKEND_ROOT)
+        _integrity.update(result)
+        if result["manifest_present"]:
+            if result["verified"]:
+                logger.info(json.dumps({
+                    "event": "manifest_verified",
+                    "files_checked": result["files_checked"],
+                }))
+            else:
+                for err in result["errors"]:
+                    logger.error(json.dumps({
+                        "event": "manifest_error",
+                        "error": err,
+                    }))
+                if REQUIRE_DATA:
+                    logger.error(json.dumps({
+                        "event": "startup_abort",
+                        "reason": "Manifest integrity check failed",
+                    }))
+                    sys.exit(1)
+
+    if not data_present:
+        if REQUIRE_DATA:
+            logger.error(json.dumps({
+                "event": "startup_abort",
+                "reason": "REQUIRE_DATA=1 but backend data not found",
+            }))
+            sys.exit(1)
+        else:
+            logger.warning(json.dumps({
+                "event": "startup_degraded",
+                "reason": "Backend data directory not found or incomplete",
+            }))
+
+    yield  # App is running — serve requests
+
+    # Shutdown (nothing to clean up for a read-only API)
+    logger.info(json.dumps({"event": "shutdown"}))
+
+
 app = FastAPI(
     title="ISI API",
     description="International Sovereignty Index — Read-Only API v0.1",
     version="0.1.0",
+    lifespan=_lifespan,
     **_build_docs_kwargs(),
 )
 
@@ -264,64 +331,6 @@ def _count_data_files() -> dict[str, int]:
         "country_files": len(list(country_dir.glob("*.json"))) if country_dir.is_dir() else 0,
         "axis_files": len(list(axis_dir.glob("*.json"))) if axis_dir.is_dir() else 0,
     }
-
-
-# ---------------------------------------------------------------------------
-# Startup
-# ---------------------------------------------------------------------------
-
-@app.on_event("startup")
-def _startup() -> None:
-    """
-    Validate backend data and optionally verify integrity manifest.
-    If REQUIRE_DATA=1 and data is missing or corrupt, exit immediately.
-    """
-    logger.info(json.dumps({
-        "event": "startup",
-        "env": ENV,
-        "require_data": REQUIRE_DATA,
-        "cors_origins": len(_origins),
-        "docs_enabled": ENABLE_DOCS or ENV == "dev",
-        "rate_limit_backend": "redis" if REDIS_URL else "memory",
-    }))
-
-    data_present = _data_available()
-
-    # Integrity verification
-    if BACKEND_ROOT.is_dir():
-        result = verify_manifest(BACKEND_ROOT)
-        _integrity.update(result)
-        if result["manifest_present"]:
-            if result["verified"]:
-                logger.info(json.dumps({
-                    "event": "manifest_verified",
-                    "files_checked": result["files_checked"],
-                }))
-            else:
-                for err in result["errors"]:
-                    logger.error(json.dumps({
-                        "event": "manifest_error",
-                        "error": err,
-                    }))
-                if REQUIRE_DATA:
-                    logger.error(json.dumps({
-                        "event": "startup_abort",
-                        "reason": "Manifest integrity check failed",
-                    }))
-                    sys.exit(1)
-
-    if not data_present:
-        if REQUIRE_DATA:
-            logger.error(json.dumps({
-                "event": "startup_abort",
-                "reason": "REQUIRE_DATA=1 but backend data not found",
-            }))
-            sys.exit(1)
-        else:
-            logger.warning(json.dumps({
-                "event": "startup_degraded",
-                "reason": "Backend data directory not found or incomplete",
-            }))
 
 
 # ---------------------------------------------------------------------------
