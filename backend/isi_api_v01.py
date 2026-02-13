@@ -360,7 +360,7 @@ def _validate_axis_id(axis_id: int) -> int:
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request) -> dict:
+async def root(request: Request) -> dict:
     """API metadata."""
     data = _get_or_load("meta", BACKEND_ROOT / "meta.json")
     if data is None:
@@ -371,12 +371,30 @@ def root(request: Request) -> dict:
     return data
 
 
-@app.get("/health")
-def health(request: Request) -> JSONResponse:
-    """Liveness probe. ALWAYS returns HTTP 200 — never 503, never raises.
+@app.get("/health", include_in_schema=False)
+async def health(request: Request) -> JSONResponse:
+    """Liveness probe — primitive, isolated, zero dependencies.
 
-    Railway (and any orchestrator) requires 200 for liveness.
-    Business-level degradation is reported in the JSON body, not the status code.
+    ALWAYS returns HTTP 200 with {"status": "ok"}.
+    No file I/O, no state reads, no cache access, no computation.
+    Survives any internal failure. Safe for Railway healthcheck probing.
+
+    Rich diagnostics (data_present, file counts) live in /ready.
+    """
+    return JSONResponse(
+        status_code=200,
+        content={"status": "ok"},
+    )
+
+
+@app.get("/ready")
+@limiter.limit("60/minute")
+async def ready(request: Request) -> JSONResponse:
+    """Readiness probe — rich diagnostics, always 200.
+
+    Reports data availability, file counts, integrity status, and version.
+    HTTP status is always 200 so orchestrator probes never choke.
+    Business-level readiness is indicated by the 'ready' field in the body.
     """
     try:
         data_present = _data_available()
@@ -386,46 +404,25 @@ def health(request: Request) -> JSONResponse:
         data_present = False
         file_count = 0
 
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": "healthy" if data_present else "degraded",
-            "version": "0.1.0",
-            "data_present": data_present,
-            "data_file_count": file_count,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
-    )
-
-
-@app.get("/ready")
-@limiter.limit("60/minute")
-def ready(request: Request) -> JSONResponse:
-    """Readiness probe for orchestrators (Railway, Kubernetes).
-
-    If REQUIRE_DATA=1: returns 200 only if data present, else 503.
-    If REQUIRE_DATA!=1: always 200 but indicates degraded if no data.
-    """
-    data_present = _data_available()
     integrity_ok = _integrity.get("verified", True)  # True if no manifest
-
     ready_flag = data_present and integrity_ok
 
     body = {
         "ready": ready_flag,
+        "status": "healthy" if data_present else "degraded",
+        "version": "0.1.0",
         "data_present": data_present,
+        "data_file_count": file_count,
         "integrity_verified": _integrity.get("verified") if _integrity.get("manifest_present") else None,
+        "timestamp": datetime.now(UTC).isoformat(),
     }
-
-    if REQUIRE_DATA and not ready_flag:
-        return JSONResponse(status_code=503, content=body)
 
     return JSONResponse(status_code=200, content=body)
 
 
 @app.get("/countries")
 @limiter.limit("30/minute")
-def list_countries(request: Request) -> Any:
+async def list_countries(request: Request) -> Any:
     """All EU-27 countries with summary scores across all axes."""
     data = _get_or_load("countries", BACKEND_ROOT / "countries.json")
     if data is None:
@@ -435,7 +432,7 @@ def list_countries(request: Request) -> Any:
 
 @app.get("/country/{code}")
 @limiter.limit("30/minute")
-def get_country(code: str, request: Request) -> Any:
+async def get_country(code: str, request: Request) -> Any:
     """Full detail for one country: all axes, channels, partners, warnings."""
     code = _validate_country_code(code)
 
@@ -450,7 +447,7 @@ def get_country(code: str, request: Request) -> Any:
 
 @app.get("/country/{code}/axes")
 @limiter.limit("30/minute")
-def get_country_axes(code: str, request: Request) -> Any:
+async def get_country_axes(code: str, request: Request) -> Any:
     """All axis scores for one country (extracted from full detail)."""
     code = _validate_country_code(code)
 
@@ -476,7 +473,7 @@ def get_country_axes(code: str, request: Request) -> Any:
 
 @app.get("/country/{code}/axis/{axis_id}")
 @limiter.limit("30/minute")
-def get_country_axis(code: str, axis_id: int, request: Request) -> Any:
+async def get_country_axis(code: str, axis_id: int, request: Request) -> Any:
     """Single axis detail for one country."""
     code = _validate_country_code(code)
     axis_id = _validate_axis_id(axis_id)
@@ -498,7 +495,7 @@ def get_country_axis(code: str, axis_id: int, request: Request) -> Any:
 
 @app.get("/axes")
 @limiter.limit("30/minute")
-def list_axes(request: Request) -> Any:
+async def list_axes(request: Request) -> Any:
     """Axis registry: all six axes with metadata, channels, warnings."""
     data = _get_or_load("axes", BACKEND_ROOT / "axes.json")
     if data is None:
@@ -508,7 +505,7 @@ def list_axes(request: Request) -> Any:
 
 @app.get("/axis/{axis_id}")
 @limiter.limit("30/minute")
-def get_axis(axis_id: int, request: Request) -> Any:
+async def get_axis(axis_id: int, request: Request) -> Any:
     """Full axis detail: scores for all 27 countries, statistics, warnings."""
     axis_id = _validate_axis_id(axis_id)
 
@@ -520,7 +517,7 @@ def get_axis(axis_id: int, request: Request) -> Any:
 
 @app.get("/isi")
 @limiter.limit("30/minute")
-def get_isi(request: Request) -> Any:
+async def get_isi(request: Request) -> Any:
     """Composite ISI scores for all countries."""
     data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if data is None:
