@@ -48,6 +48,7 @@ try:
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
+    from starlette.middleware.gzip import GZipMiddleware
 except ImportError:
     print(
         "FATAL: FastAPI not installed. Install with:\n"
@@ -69,6 +70,7 @@ except ImportError:
     sys.exit(1)
 
 from backend.security import (  # noqa: I001
+    ETagMiddleware,
     RequestIdMiddleware,
     RequestSizeLimitMiddleware,
     SecurityHeadersMiddleware,
@@ -270,12 +272,17 @@ logger.info("CORS configured for: %s (regex: %s)", _CORS_ORIGINS, _CORS_ORIGIN_R
 
 
 # ---------------------------------------------------------------------------
-# Security middleware (order matters: outermost runs first)
+# Security & performance middleware (order matters: last registered = outermost)
+# Starlette runs middleware in reverse registration order.
+# Registration order here:  CORS → RequestId → RequestSizeLimit → ETag → SecurityHeaders → GZip
+# Execution order (outermost first): GZip → SecurityHeaders → ETag → RequestSizeLimit → RequestId → CORS
 # ---------------------------------------------------------------------------
 
 app.add_middleware(SecurityHeadersMiddleware, enable_hsts=(ENV == "prod"))
+app.add_middleware(ETagMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
 app.add_middleware(RequestIdMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # ---------------------------------------------------------------------------
@@ -548,26 +555,17 @@ async def get_axis(axis_id: int, request: Request) -> Any:
 
 
 @app.get("/isi")
+@limiter.limit("120/minute")
 async def get_isi(request: Request) -> Any:
     """Composite ISI scores for all countries.
 
-    No rate limiter — this is the primary comparative page endpoint.
+    Primary comparative-page endpoint. Rate-limited at 120/min (generous).
     Data is served from memory cache; zero blocking I/O after first load.
     """
     data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if data is None:
         raise HTTPException(status_code=503, detail="isi.json not found.")
     return data
-
-
-# ---------------------------------------------------------------------------
-# Temporary CORS debug endpoint — remove after verification
-# ---------------------------------------------------------------------------
-
-@app.get("/_cors_test")
-async def cors_test(request: Request) -> dict:
-    """Temporary endpoint to verify CORS headers in browser DevTools."""
-    return {"status": "ok", "cors_origins": _CORS_ORIGINS}
 
 
 # ---------------------------------------------------------------------------

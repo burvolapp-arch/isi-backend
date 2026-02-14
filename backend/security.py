@@ -3,8 +3,9 @@ backend.security — Security middleware and utilities for ISI API.
 
 Provides:
     - SecurityHeadersMiddleware: adds OWASP-recommended response headers
-    - RequestSizeLimitMiddleware: rejects oversized request bodies
+    - RequestSizeLimitMiddleware: rejects oversized request bodies / headers
     - RequestIdMiddleware: attaches X-Request-ID to every request/response
+    - ETagMiddleware: computes ETag for JSON responses, returns 304 on match
     - structured_log: JSON-structured request logging
     - verify_manifest: SHA-256 integrity check for backend/v01 artifacts
 """
@@ -54,7 +55,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     Inject OWASP-recommended security headers into every response.
     HSTS is only added when env is 'prod' (assumes TLS termination
     upstream, which Railway provides).
+
+    Cache-Control strategy:
+      - /health, /ready       → no-store (must never be cached)
+      - /                     → public, long TTL (metadata is static per deploy)
+      - /isi, /countries, etc → public, short TTL with CDN revalidation
     """
+
+    # Paths that must never be cached
+    _NO_STORE_PATHS = frozenset(("/health", "/ready"))
 
     def __init__(self, app: Any, *, enable_hsts: bool = False) -> None:
         super().__init__(app)
@@ -62,6 +71,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         response = await call_next(request)
+
+        # --- OWASP security headers ---
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -71,19 +82,25 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "payment=(), usb=()"
         )
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+
         if self.enable_hsts:
             response.headers["Strict-Transport-Security"] = (
-                "max-age=63072000; includeSubDomains; preload"
+                "max-age=31536000; includeSubDomains; preload"
             )
-        # Cache-Control: /health and /ready are no-store;
-        # data endpoints get short private cache
+
+        # --- Cache-Control per path ---
         path = request.url.path
-        if path in ("/health", "/ready"):
+        if path in self._NO_STORE_PATHS:
             response.headers["Cache-Control"] = "no-store"
         elif path == "/":
             response.headers["Cache-Control"] = "public, max-age=3600"
         else:
-            response.headers["Cache-Control"] = "private, no-store"
+            # Data endpoints: deterministic per deploy, safe for CDN edge caching
+            response.headers["Cache-Control"] = (
+                "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+            )
+
         return response
 
 
@@ -91,13 +108,26 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # Request size limit middleware
 # ---------------------------------------------------------------------------
 
-MAX_BODY_BYTES = 1024  # 1 KB — API is GET-only, no reason for large bodies
+MAX_BODY_BYTES = 1024       # 1 KB — API is GET-only, no reason for large bodies
+MAX_HEADER_BYTES = 16_384   # 16 KB — reject header-stuffing abuse
 
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    """Reject requests with bodies exceeding MAX_BODY_BYTES."""
+    """Reject requests with oversized bodies (413) or headers (431)."""
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
+        # Check total header size (name + value for all headers)
+        header_size = sum(
+            len(k) + len(v) for k, v in request.headers.raw
+        )
+        if header_size > MAX_HEADER_BYTES:
+            return Response(
+                content='{"detail":"Request headers too large"}',
+                status_code=431,
+                media_type="application/json",
+            )
+
+        # Check Content-Length for body size
         content_length = request.headers.get("content-length")
         if content_length is not None:
             try:
@@ -109,7 +139,66 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
                     )
             except ValueError:
                 pass
+
         return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# ETag / conditional-GET middleware
+# ---------------------------------------------------------------------------
+
+# Paths excluded from ETag — must be uncacheable / dynamic
+_ETAG_EXCLUDE_PATHS = frozenset(("/health", "/ready"))
+
+
+class ETagMiddleware(BaseHTTPMiddleware):
+    """Compute weak ETag for 200 JSON responses; return 304 on If-None-Match.
+
+    Skips /health and /ready (always fresh). Only applies to GET responses
+    with status 200 and a body. Uses MD5 for speed (not a security hash).
+    """
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        # Only apply to GET requests on cacheable paths
+        if request.method != "GET" or request.url.path in _ETAG_EXCLUDE_PATHS:
+            return await call_next(request)
+
+        response = await call_next(request)
+
+        # Only tag successful responses that have a body
+        if response.status_code != 200:
+            return response
+
+        # Read the body from the streaming response
+        body_chunks: list[bytes] = []
+        async for chunk in response.body_iterator:  # type: ignore[union-attr]
+            body_chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode())
+        body = b"".join(body_chunks)
+
+        if not body:
+            return response
+
+        # Compute weak ETag from MD5 of response bytes
+        digest = hashlib.md5(body, usedforsecurity=False).hexdigest()  # noqa: S324
+        etag = f'W/"{digest}"'
+
+        # Check If-None-Match
+        if_none_match = request.headers.get("if-none-match", "")
+        if if_none_match == etag or etag in {
+            t.strip() for t in if_none_match.split(",")
+        }:
+            return Response(
+                status_code=304,
+                headers={"ETag": etag},
+            )
+
+        # Return full response with ETag attached
+        return Response(
+            content=body,
+            status_code=200,
+            headers={**dict(response.headers), "ETag": etag},
+            media_type=response.media_type,
+        )
 
 
 # ---------------------------------------------------------------------------
