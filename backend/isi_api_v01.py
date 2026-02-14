@@ -159,7 +159,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         "event": "startup",
         "env": ENV,
         "require_data": REQUIRE_DATA,
-        "cors_origins": len(_parse_origins()),
+        "cors_origins": len(_CORS_ORIGINS),
         "docs_enabled": ENABLE_DOCS or ENV == "dev",
         "rate_limit_backend": "redis" if REDIS_URL else "memory",
     }))
@@ -221,29 +221,33 @@ app.state.limiter = limiter
 
 
 # ---------------------------------------------------------------------------
-# CORS
+# CORS — Production origin policy
+# Explicit allow-list only. No wildcard origins.
+# Vercel frontend + localhost dev. Credentials enabled for future auth.
+# Only GET and preflight OPTIONS are permitted cross-origin.
 # ---------------------------------------------------------------------------
 
-def _parse_origins() -> list[str]:
-    """Parse ALLOWED_ORIGINS env var into origin list."""
-    if ALLOWED_ORIGINS_RAW:
-        return [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
-    if ENV == "dev":
-        return ["http://localhost:3000", "http://127.0.0.1:3000"]
-    # Prod with no explicit origins: empty list = deny all cross-origin
-    return []
+# Hard-coded production origins. ALLOWED_ORIGINS env var can extend the list.
+_CORS_ORIGINS: list[str] = [
+    "https://isi-frontend.vercel.app",
+    "http://localhost:3000",
+]
 
+if ALLOWED_ORIGINS_RAW:
+    for _o in ALLOWED_ORIGINS_RAW.split(","):
+        _o = _o.strip()
+        if _o and _o not in _CORS_ORIGINS:
+            _CORS_ORIGINS.append(_o)
 
-_origins = _parse_origins()
-if _origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_origins,
-        allow_methods=["GET"],
-        allow_headers=["Accept", "Accept-Language", "Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID"],
-        max_age=3600,
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
+    max_age=3600,
+)
 
 
 # ---------------------------------------------------------------------------
