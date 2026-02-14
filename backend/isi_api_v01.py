@@ -222,32 +222,51 @@ app.state.limiter = limiter
 
 # ---------------------------------------------------------------------------
 # CORS — Production origin policy
-# Explicit allow-list only. No wildcard origins.
-# Vercel frontend + localhost dev. Credentials enabled for future auth.
-# Only GET and preflight OPTIONS are permitted cross-origin.
+#
+# Strict allow-list. No wildcard origins.
+#   - Production:  https://isi.internationalsovereignty.org
+#   - Legacy/preview: https://isi-frontend.vercel.app
+#   - Dev:         http://localhost:3000
+#   - Regex catch-all for future *.internationalsovereignty.org subdomains
+#
+# Credentials disabled (no cookies/auth headers cross-origin).
+# Only GET + OPTIONS (preflight) permitted.
+# ALLOWED_ORIGINS env var can extend the list at deploy time.
 # ---------------------------------------------------------------------------
 
-# Hard-coded production origins. ALLOWED_ORIGINS env var can extend the list.
-_CORS_ORIGINS: list[str] = [
+PRODUCTION_ORIGINS: list[str] = [
+    "https://isi.internationalsovereignty.org",
     "https://isi-frontend.vercel.app",
+]
+
+DEV_ORIGINS: list[str] = [
     "http://localhost:3000",
 ]
 
+_CORS_ORIGINS: list[str] = PRODUCTION_ORIGINS + DEV_ORIGINS
+
+# Extend with any deploy-time overrides (Railway env var)
 if ALLOWED_ORIGINS_RAW:
     for _o in ALLOWED_ORIGINS_RAW.split(","):
         _o = _o.strip()
         if _o and _o not in _CORS_ORIGINS:
             _CORS_ORIGINS.append(_o)
 
+# Regex: match any current or future subdomain of internationalsovereignty.org
+_CORS_ORIGIN_REGEX = r"https:\/\/.*\.internationalsovereignty\.org"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
+    allow_credentials=False,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
     max_age=3600,
 )
+
+logger.info("CORS configured for: %s (regex: %s)", _CORS_ORIGINS, _CORS_ORIGIN_REGEX)
 
 
 # ---------------------------------------------------------------------------
@@ -529,13 +548,26 @@ async def get_axis(axis_id: int, request: Request) -> Any:
 
 
 @app.get("/isi")
-@limiter.limit("30/minute")
 async def get_isi(request: Request) -> Any:
-    """Composite ISI scores for all countries."""
+    """Composite ISI scores for all countries.
+
+    No rate limiter — this is the primary comparative page endpoint.
+    Data is served from memory cache; zero blocking I/O after first load.
+    """
     data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if data is None:
         raise HTTPException(status_code=503, detail="isi.json not found.")
     return data
+
+
+# ---------------------------------------------------------------------------
+# Temporary CORS debug endpoint — remove after verification
+# ---------------------------------------------------------------------------
+
+@app.get("/_cors_test")
+async def cors_test(request: Request) -> dict:
+    """Temporary endpoint to verify CORS headers in browser DevTools."""
+    return {"status": "ok", "cors_origins": _CORS_ORIGINS}
 
 
 # ---------------------------------------------------------------------------
