@@ -1,6 +1,7 @@
 # ISI API — production dependencies (pinned)
-fastapi==0.128.7
-starlette==0.52.1
+# NOTE: This is the file the Dockerfile copies. Keep in sync with backend/requirements.txt.
+fastapi==0.115.6
 uvicorn[standard]==0.34.0
 gunicorn==23.0.0
 slowapi==0.1.9
+pydantic>=2.0

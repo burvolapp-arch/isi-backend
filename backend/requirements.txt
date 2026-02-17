@@ -1,2 +1,7 @@
+# ISI API — production dependencies (pinned)
+# Mirror of root requirements.txt — keep in sync.
 fastapi==0.115.6
-uvicorn==0.34.0
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+slowapi==0.1.9
+pydantic>=2.0

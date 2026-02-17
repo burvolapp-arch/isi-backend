@@ -48,9 +48,9 @@ from typing import Any
 
 try:
     from fastapi import FastAPI, HTTPException, Request
+    from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
-    from pydantic import ValidationError
     from starlette.middleware.gzip import GZipMiddleware
 except ImportError:
     print(
@@ -300,6 +300,36 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
         status_code=429,
         content={"detail": "Rate limit exceeded. Try again later."},
         headers={"Retry-After": "60"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Validation error handler — converts FastAPI's 422 to structured 400
+#
+# When using `body: ScenarioRequest` as a parameter, FastAPI validates
+# the JSON body before the handler runs. If validation fails, FastAPI raises
+# RequestValidationError which defaults to 422. We intercept it here and
+# return the INVALID_SCENARIO_INPUT format the frontend expects as 400.
+# This also catches malformed JSON (missing Content-Type, non-JSON body, etc.)
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = exc.errors()
+    detail_items = []
+    for e in errors:
+        loc_parts = [str(p) for p in e.get("loc", []) if p != "body"]
+        detail_items.append({
+            "field": ".".join(loc_parts) if loc_parts else "body",
+            "message": e.get("msg", "Validation failed"),
+        })
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": "INVALID_SCENARIO_INPUT",
+            "message": "Request validation failed.",
+            "details": detail_items[0] if len(detail_items) == 1 else detail_items,
+        },
     )
 
 
@@ -599,77 +629,38 @@ async def scenario_get(request: Request) -> JSONResponse:
 
 @app.post("/scenario")
 @limiter.limit("60/minute")
-async def scenario(request: Request) -> JSONResponse:
+async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
     """Deterministic what-if scenario simulation (v0.2).
 
-    PART 1 — Input validation → 400.
+    PART 1 — Input validation → 400 (FastAPI + Pydantic auto-validates `body`).
     PART 2 — Safe computation wrapper → 500 on unrecoverable.
     PART 3 — Bound output sanitization (inside simulate()).
     PART 4 — Idempotent, no global state mutation, deterministic.
     PART 5 — Flat response: {composite, rank, classification, axes[], request_id}.
     PART 6 — GET /scenario returns 405.
+
+    NOTE: `body: ScenarioRequest` uses FastAPI native body injection.
+    This avoids manually calling `await request.json()` which is known to
+    deadlock under BaseHTTPMiddleware stacking with Gunicorn/Uvicorn workers.
+    FastAPI handles JSON parsing + Pydantic validation BEFORE the handler runs.
+    Invalid JSON → 422 (FastAPI default). Invalid schema → 422.
     """
     # PART 4 — request_id from middleware (deterministic tracing)
     request_id: str = getattr(request.state, "request_id", "unknown")
 
-    # ---- PART 1: Strict input validation ----
-
-    # 1a. Parse JSON body
-    try:
-        raw_body = await request.json()
-    except Exception:
+    # ---- PART 1c: Validate country is in EU-27 scope ----
+    # (country_code format + axis slug + range validation already done by Pydantic)
+    if body.country_code not in EU27_SET:
         return JSONResponse(
             status_code=400,
             content={
                 "error": "INVALID_SCENARIO_INPUT",
-                "message": "Request body is not valid JSON.",
-                "details": {"parse_error": "Could not decode JSON."},
+                "message": f"Country '{body.country_code}' is not in EU-27 scope.",
+                "details": {"country_code": body.country_code},
             },
         )
 
-    # 1b. Pydantic strict validation (country_code exists, axis deltas numeric,
-    #     deltas in range, all slugs valid, no NaN, no None)
-    try:
-        req = ScenarioRequest(**raw_body)
-    except ValidationError as exc:
-        errors = exc.errors()
-        detail_items = [
-            {
-                "field": ".".join(str(p) for p in e.get("loc", [])),
-                "message": e.get("msg", "Validation failed"),
-            }
-            for e in errors
-        ]
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "INVALID_SCENARIO_INPUT",
-                "message": "Request validation failed.",
-                "details": detail_items[0] if len(detail_items) == 1 else detail_items,
-            },
-        )
-    except Exception:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "INVALID_SCENARIO_INPUT",
-                "message": "Could not parse request body.",
-                "details": {},
-            },
-        )
-
-    # 1c. Validate country is in EU-27 scope
-    if req.country_code not in EU27_SET:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "INVALID_SCENARIO_INPUT",
-                "message": f"Country '{req.country_code}' is not in EU-27 scope.",
-                "details": {"country_code": req.country_code, "valid": sorted(EU27_SET)},
-            },
-        )
-
-    # 1d. Load baseline data
+    # ---- PART 1d: Load baseline data ----
     isi_data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if isi_data is None:
         logger.error(json.dumps({
@@ -701,8 +692,8 @@ async def scenario(request: Request) -> JSONResponse:
     # ---- PART 2: Safe computation wrapper ----
     try:
         result = simulate(
-            country_code=req.country_code,
-            adjustments=req.adjustments,
+            country_code=body.country_code,
+            adjustments=body.adjustments,
             all_baselines=all_baselines,
             request_id=request_id,
         )
@@ -711,8 +702,8 @@ async def scenario(request: Request) -> JSONResponse:
         logger.error(json.dumps({
             "event": "scenario_computation_failed",
             "request_id": request_id,
-            "country_code": req.country_code,
-            "adjustments": req.adjustments,
+            "country_code": body.country_code,
+            "adjustments": body.adjustments,
             "error_type": type(exc).__name__,
             "error": str(exc),
         }))
@@ -789,7 +780,7 @@ async def scenario(request: Request) -> JSONResponse:
     logger.info(json.dumps({
         "event": "scenario_success",
         "request_id": request_id,
-        "country_code": req.country_code,
+        "country_code": body.country_code,
         "composite": composite,
     }))
 

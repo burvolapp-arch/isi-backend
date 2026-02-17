@@ -108,7 +108,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # Request size limit middleware
 # ---------------------------------------------------------------------------
 
-MAX_BODY_BYTES = 1024       # 1 KB — API is GET-only, no reason for large bodies
+MAX_BODY_BYTES = 4096       # 4 KB — POST /scenario bodies are ~200 bytes; generous headroom
 MAX_HEADER_BYTES = 16_384   # 16 KB — reject header-stuffing abuse
 
 
