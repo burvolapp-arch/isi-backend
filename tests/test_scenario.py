@@ -1,8 +1,11 @@
 """
-tests/test_scenario.py — Unit tests for ISI scenario simulation engine.
+tests/test_scenario.py — Unit tests for ISI scenario simulation engine (v0.2).
 
 Tests the pure computation module (backend.scenario) directly,
 and the POST /scenario endpoint via FastAPI TestClient.
+
+Response contract (v0.2):
+    {composite, rank, classification, axes[], request_id}
 
 Requires: pytest, httpx (FastAPI TestClient dependency)
 """
@@ -15,6 +18,7 @@ import pytest
 
 from backend.scenario import (
     AXIS_SLUGS,
+    VALID_CLASSIFICATIONS,
     ScenarioRequest,
     classify,
     clamp01,
@@ -179,51 +183,55 @@ class TestSimulate:
             country_code="SE",
             adjustments={"defense": 0.10},
             all_baselines=all_baselines,
+            request_id="test-001",
         )
 
-        assert result["ok"] is True
+        # v0.2 flat contract
+        assert "composite" in result
+        assert "rank" in result
+        assert "classification" in result
+        assert "axes" in result
+        assert "request_id" in result
+        assert result["request_id"] == "test-001"
 
-        # Baseline
-        bl = result["baseline"]
-        assert bl["country"] == "SE"
-        assert bl["axis_scores"]["defense"] == pytest.approx(0.30)
+        # No extra fields
+        assert set(result.keys()) == {"composite", "rank", "classification", "axes", "request_id"}
 
-        # Simulated
-        sim = result["simulated"]
-        assert sim["axis_scores"]["defense"] == pytest.approx(0.40)
-        assert sim["composite"] > bl["composite"]
+        # Composite is bounded
+        assert 0.0 <= result["composite"] <= 1.0
 
-        # All values bounded
-        for slug in AXIS_SLUGS:
-            assert 0.0 <= sim["axis_scores"][slug] <= 1.0
-        assert 0.0 <= sim["composite"] <= 1.0
-        assert 1 <= sim["rank"] <= 27
-        assert sim["classification"] in {
-            "highly_concentrated",
-            "moderately_concentrated",
-            "mildly_concentrated",
-            "unconcentrated",
-        }
+        # Rank is positive integer
+        assert isinstance(result["rank"], int)
+        assert 1 <= result["rank"] <= 27
 
-        # No negatives anywhere
-        for slug in AXIS_SLUGS:
-            assert sim["axis_scores"][slug] >= 0.0
+        # Classification is valid
+        assert result["classification"] in VALID_CLASSIFICATIONS
 
-        # Delta
-        delta = result["delta"]
-        assert delta["composite"] > 0
-        assert delta["axis_deltas"]["defense"] == pytest.approx(0.10)
+        # Axes: exactly 6, each with slug/value/delta, no NaN, bounded
+        assert isinstance(result["axes"], list)
+        assert len(result["axes"]) == 6
+        for ax in result["axes"]:
+            assert set(ax.keys()) == {"slug", "value", "delta"}
+            assert ax["slug"] in AXIS_SLUGS
+            assert 0.0 <= ax["value"] <= 1.0
+            assert not math.isnan(ax["value"])
+            assert not math.isnan(ax["delta"])
+
+        # Defense axis should have increased
+        defense_ax = next(a for a in result["axes"] if a["slug"] == "defense")
+        assert defense_ax["value"] == pytest.approx(0.40)
+        assert defense_ax["delta"] == pytest.approx(0.10)
 
     def test_no_change_zero_adjustments(self, all_baselines):
-        """All-zero adjustments should produce identical baseline and simulated."""
+        """All-zero adjustments should produce zero deltas."""
         result = simulate(
             country_code="SE",
             adjustments={"defense": 0.0},
             all_baselines=all_baselines,
+            request_id="test-002",
         )
-        assert result["ok"] is True
-        assert result["delta"]["composite"] == pytest.approx(0.0)
-        assert result["simulated"]["composite"] == pytest.approx(result["baseline"]["composite"])
+        for ax in result["axes"]:
+            assert ax["delta"] == pytest.approx(0.0)
 
     def test_clamp_at_one(self, all_baselines):
         """Adjustment that pushes score above 1.0 should clamp."""
@@ -231,9 +239,10 @@ class TestSimulate:
             country_code="SE",
             adjustments={"defense": 0.20},  # 0.30 + 0.20 = 0.50 (still under 1.0)
             all_baselines=all_baselines,
+            request_id="test-003",
         )
-        assert result["ok"] is True
-        assert result["simulated"]["axis_scores"]["defense"] == pytest.approx(0.50)
+        defense_ax = next(a for a in result["axes"] if a["slug"] == "defense")
+        assert defense_ax["value"] == pytest.approx(0.50)
 
     def test_clamp_at_zero(self, all_baselines):
         """Negative adjustment should clamp at 0.0."""
@@ -241,9 +250,10 @@ class TestSimulate:
             country_code="SE",
             adjustments={"energy": -0.20},  # 0.10 - 0.20 = -0.10 → clamped to 0.0
             all_baselines=all_baselines,
+            request_id="test-004",
         )
-        assert result["ok"] is True
-        assert result["simulated"]["axis_scores"]["energy"] == 0.0
+        energy_ax = next(a for a in result["axes"] if a["slug"] == "energy")
+        assert energy_ax["value"] == 0.0
 
     def test_missing_country_raises(self, all_baselines):
         """Country not in baselines → ValueError."""
@@ -252,6 +262,7 @@ class TestSimulate:
                 country_code="XX",
                 adjustments={"defense": 0.10},
                 all_baselines=all_baselines,
+                request_id="test-005",
             )
 
     def test_multiple_adjustments(self, all_baselines):
@@ -260,12 +271,42 @@ class TestSimulate:
             country_code="SE",
             adjustments={"defense": 0.10, "energy": -0.05, "financial": 0.05},
             all_baselines=all_baselines,
+            request_id="test-006",
         )
-        assert result["ok"] is True
-        sim = result["simulated"]
-        assert sim["axis_scores"]["defense"] == pytest.approx(0.40)
-        assert sim["axis_scores"]["energy"] == pytest.approx(0.05)
-        assert sim["axis_scores"]["financial"] == pytest.approx(0.20)
+        axes_by_slug = {a["slug"]: a for a in result["axes"]}
+        assert axes_by_slug["defense"]["value"] == pytest.approx(0.40)
+        assert axes_by_slug["energy"]["value"] == pytest.approx(0.05)
+        assert axes_by_slug["financial"]["value"] == pytest.approx(0.20)
+
+    def test_idempotent(self, all_baselines):
+        """Same inputs always produce identical outputs (deterministic)."""
+        kwargs = dict(
+            country_code="SE",
+            adjustments={"defense": 0.10},
+            all_baselines=all_baselines,
+            request_id="test-idem",
+        )
+        r1 = simulate(**kwargs)
+        r2 = simulate(**kwargs)
+        assert r1 == r2
+
+    def test_no_null_fields(self, all_baselines):
+        """No field in the response may be None."""
+        result = simulate(
+            country_code="SE",
+            adjustments={"defense": 0.10},
+            all_baselines=all_baselines,
+            request_id="test-null",
+        )
+        assert result["composite"] is not None
+        assert result["rank"] is not None
+        assert result["classification"] is not None
+        assert result["axes"] is not None
+        assert result["request_id"] is not None
+        for ax in result["axes"]:
+            assert ax["slug"] is not None
+            assert ax["value"] is not None
+            assert ax["delta"] is not None
 
 
 # ---------------------------------------------------------------------------

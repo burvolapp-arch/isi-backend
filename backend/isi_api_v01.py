@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-isi_api_v01.py — ISI Read-Only API Server (hardened)
+isi_api_v01.py — ISI API Server (hardened, v0.2)
 
 Serves pre-materialized JSON artifacts produced by
-export_isi_backend_v01.py. Performs ZERO computation.
-Every response is a direct file read from backend/v01/.
+export_isi_backend_v01.py and a deterministic scenario simulation
+endpoint. Read endpoints are direct file reads from backend/v01/.
+The POST /scenario endpoint performs bounded, validated computation.
 
 Endpoints:
     GET /                       → API metadata
@@ -216,8 +217,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="ISI API",
-    description="International Sovereignty Index — Read-Only API v0.1",
-    version="0.1.0",
+    description="International Sovereignty Index — API v0.2",
+    version="0.2.0",
     lifespan=_lifespan,
     **_build_docs_kwargs(),
 )
@@ -418,7 +419,7 @@ async def root(request: Request) -> dict:
 async def health(request: Request) -> JSONResponse:
     """Liveness probe — primitive, isolated, zero dependencies.
 
-    ALWAYS returns HTTP 200 with {"status": "ok"}.
+    ALWAYS returns HTTP 200 with {"status": "ok", "version": "v0.2"}.
     No file I/O, no state reads, no cache access, no computation.
     Survives any internal failure. Safe for Railway healthcheck probing.
 
@@ -426,7 +427,7 @@ async def health(request: Request) -> JSONResponse:
     """
     return JSONResponse(
         status_code=200,
-        content={"status": "ok"},
+        content={"status": "ok", "version": "v0.2"},
     )
 
 
@@ -573,177 +574,226 @@ async def get_isi(request: Request) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# POST /scenario — What-if scenario simulation
+# POST /scenario — What-if scenario simulation (v0.2)
 #
 # Accepts a country code and per-axis adjustments [-0.20, +0.20].
-# Returns baseline, simulated scores, rank, classification, and deltas.
-# NEVER returns 500. All failures are caught and returned as structured JSON.
+# Returns flat: {composite, rank, classification, axes[], request_id}.
+# Deterministic, bounded, validated, idempotent.
+# No global state mutation. No caching. No randomness.
+#
+# Error contract:
+#   400 → INVALID_SCENARIO_INPUT (validation failures)
+#   500 → SIMULATION_COMPUTATION_FAILED (output sanitization / internal)
+#   405 → GET on /scenario (method not allowed)
 # ---------------------------------------------------------------------------
+
+@app.get("/scenario", include_in_schema=False)
+async def scenario_get(request: Request) -> JSONResponse:
+    """GET /scenario → 405 Method Not Allowed."""
+    return JSONResponse(
+        status_code=405,
+        content={"error": "METHOD_NOT_ALLOWED", "message": "Use POST."},
+        headers={"Allow": "POST, OPTIONS"},
+    )
+
 
 @app.post("/scenario")
 @limiter.limit("60/minute")
 async def scenario(request: Request) -> JSONResponse:
-    """Deterministic what-if scenario simulation.
+    """Deterministic what-if scenario simulation (v0.2).
 
-    Input validation returns 400 with structured error.
-    Computation errors return 200 with ok=false.
-    Success returns 200 with ok=true.
-    Never returns 500.
+    PART 1 — Input validation → 400.
+    PART 2 — Safe computation wrapper → 500 on unrecoverable.
+    PART 3 — Bound output sanitization (inside simulate()).
+    PART 4 — Idempotent, no global state mutation, deterministic.
+    PART 5 — Flat response: {composite, rank, classification, axes[], request_id}.
+    PART 6 — GET /scenario returns 405.
     """
-    # --- Parse and validate request body ---
+    # PART 4 — request_id from middleware (deterministic tracing)
+    request_id: str = getattr(request.state, "request_id", "unknown")
+
+    # ---- PART 1: Strict input validation ----
+
+    # 1a. Parse JSON body
     try:
         raw_body = await request.json()
     except Exception:
         return JSONResponse(
             status_code=400,
             content={
-                "ok": False,
-                "error": {
-                    "code": "INVALID_JSON",
-                    "message": "Request body is not valid JSON.",
-                },
+                "error": "INVALID_SCENARIO_INPUT",
+                "message": "Request body is not valid JSON.",
+                "details": {"parse_error": "Could not decode JSON."},
             },
         )
 
+    # 1b. Pydantic strict validation (country_code exists, axis deltas numeric,
+    #     deltas in range, all slugs valid, no NaN, no None)
     try:
         req = ScenarioRequest(**raw_body)
     except ValidationError as exc:
-        # Extract first error message, sanitised
         errors = exc.errors()
-        first_msg = errors[0]["msg"] if errors else "Validation failed"
+        detail_items = [
+            {
+                "field": ".".join(str(p) for p in e.get("loc", [])),
+                "message": e.get("msg", "Validation failed"),
+            }
+            for e in errors
+        ]
         return JSONResponse(
             status_code=400,
             content={
-                "ok": False,
-                "error": {
-                    "code": "INVALID_INPUT",
-                    "message": "Request validation failed.",
-                    "details": str(first_msg),
-                },
+                "error": "INVALID_SCENARIO_INPUT",
+                "message": "Request validation failed.",
+                "details": detail_items[0] if len(detail_items) == 1 else detail_items,
             },
         )
     except Exception:
         return JSONResponse(
             status_code=400,
             content={
-                "ok": False,
-                "error": {
-                    "code": "INVALID_INPUT",
-                    "message": "Could not parse request body.",
-                },
+                "error": "INVALID_SCENARIO_INPUT",
+                "message": "Could not parse request body.",
+                "details": {},
             },
         )
 
-    # --- Validate country exists in EU-27 scope ---
+    # 1c. Validate country is in EU-27 scope
     if req.country_code not in EU27_SET:
         return JSONResponse(
             status_code=400,
             content={
-                "ok": False,
-                "error": {
-                    "code": "INVALID_COUNTRY",
-                    "message": f"Country '{req.country_code}' is not in EU-27 scope.",
-                },
+                "error": "INVALID_SCENARIO_INPUT",
+                "message": f"Country '{req.country_code}' is not in EU-27 scope.",
+                "details": {"country_code": req.country_code, "valid": sorted(EU27_SET)},
             },
         )
 
-    # --- Load baseline data ---
+    # 1d. Load baseline data
     isi_data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if isi_data is None:
+        logger.error(json.dumps({
+            "event": "scenario_data_missing",
+            "request_id": request_id,
+        }))
         return JSONResponse(
-            status_code=200,
+            status_code=500,
             content={
-                "ok": False,
-                "error": {
-                    "code": "DATA_NOT_AVAILABLE",
-                    "message": "ISI baseline data not materialized.",
-                },
+                "error": "SIMULATION_COMPUTATION_FAILED",
+                "message": "Internal simulation error.",
             },
         )
 
     all_baselines = isi_data.get("countries", [])
     if not all_baselines:
+        logger.error(json.dumps({
+            "event": "scenario_baselines_empty",
+            "request_id": request_id,
+        }))
         return JSONResponse(
-            status_code=200,
+            status_code=500,
             content={
-                "ok": False,
-                "error": {
-                    "code": "DATA_NOT_AVAILABLE",
-                    "message": "ISI baseline countries array is empty.",
-                },
+                "error": "SIMULATION_COMPUTATION_FAILED",
+                "message": "Internal simulation error.",
             },
         )
 
-    # --- Run simulation (pure computation, guaranteed bounded) ---
+    # ---- PART 2: Safe computation wrapper ----
     try:
         result = simulate(
             country_code=req.country_code,
             adjustments=req.adjustments,
             all_baselines=all_baselines,
-        )
-    except ValueError as exc:
-        logger.warning(json.dumps({
-            "event": "scenario_value_error",
-            "country_code": req.country_code,
-            "adjustments": req.adjustments,
-            "error": str(exc),
-        }))
-        return JSONResponse(
-            status_code=200,
-            content={
-                "ok": False,
-                "error": {
-                    "code": "SCENARIO_COMPUTATION_ERROR",
-                    "message": "Scenario computation failed.",
-                    "details": str(exc),
-                },
-            },
-        )
-    except (AssertionError, RuntimeError) as exc:
-        logger.error(json.dumps({
-            "event": "scenario_invariant_violation",
-            "country_code": req.country_code,
-            "adjustments": req.adjustments,
-            "error": str(exc),
-        }))
-        return JSONResponse(
-            status_code=200,
-            content={
-                "ok": False,
-                "error": {
-                    "code": "AXIS_SIMULATION_ERROR",
-                    "message": "Scenario computation failed due to numerical invariant violation.",
-                    "details": str(exc),
-                },
-            },
+            request_id=request_id,
         )
     except Exception as exc:
-        # Absolute last resort — NEVER propagate to 500
+        # Log full error server-side; never leak to client
         logger.error(json.dumps({
-            "event": "scenario_unhandled_error",
+            "event": "scenario_computation_failed",
+            "request_id": request_id,
             "country_code": req.country_code,
+            "adjustments": req.adjustments,
             "error_type": type(exc).__name__,
+            "error": str(exc),
         }))
         return JSONResponse(
-            status_code=200,
+            status_code=500,
             content={
-                "ok": False,
-                "error": {
-                    "code": "SCENARIO_COMPUTATION_ERROR",
-                    "message": "Scenario computation failed.",
-                },
+                "error": "SIMULATION_COMPUTATION_FAILED",
+                "message": "Internal simulation error.",
             },
         )
 
-    # --- Log success (internal only, never exposed) ---
+    # ---- PART 3: Output sanitization (post-computation) ----
+    # simulate() already clamps + validates, but belt-and-suspenders here.
+    try:
+        composite = float(result["composite"])
+        rank = int(result["rank"])
+        classification = str(result["classification"])
+        axes = result["axes"]
+        rid = str(result["request_id"])
+
+        import math as _math
+
+        if _math.isnan(composite) or _math.isinf(composite):
+            raise ValueError("composite is NaN/Inf")
+        if not (0.0 <= composite <= 1.0):
+            raise ValueError(f"composite {composite} out of [0,1]")
+        if not isinstance(rank, int) or rank < 1:
+            raise ValueError(f"rank {rank} is not a positive integer")
+
+        from backend.scenario import VALID_CLASSIFICATIONS as _VC
+        if classification not in _VC:
+            raise ValueError(f"classification '{classification}' invalid")
+
+        if not isinstance(axes, list) or len(axes) != 6:
+            raise ValueError(f"axes has {len(axes)} elements, expected 6")
+
+        for ax in axes:
+            v = float(ax["value"])
+            d = float(ax["delta"])
+            if _math.isnan(v) or _math.isinf(v):
+                raise ValueError(f"axis '{ax['slug']}' value is NaN/Inf")
+            if _math.isnan(d) or _math.isinf(d):
+                raise ValueError(f"axis '{ax['slug']}' delta is NaN/Inf")
+            if not (0.0 <= v <= 1.0):
+                raise ValueError(f"axis '{ax['slug']}' value {v} out of [0,1]")
+
+    except Exception as exc:
+        logger.error(json.dumps({
+            "event": "scenario_output_sanitization_failed",
+            "request_id": request_id,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }))
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "SIMULATION_COMPUTATION_FAILED",
+                "message": "Internal simulation error.",
+            },
+        )
+
+    # ---- PART 5: Structured response contract (exact shape, no extras, no nulls) ----
+    response_body = {
+        "composite": composite,
+        "rank": rank,
+        "classification": classification,
+        "axes": [
+            {"slug": ax["slug"], "value": float(ax["value"]), "delta": float(ax["delta"])}
+            for ax in axes
+        ],
+        "request_id": rid,
+    }
+
     logger.info(json.dumps({
         "event": "scenario_success",
+        "request_id": request_id,
         "country_code": req.country_code,
-        "adjustments": req.adjustments,
-        "simulated_composite": result["simulated"]["composite"],
+        "composite": composite,
     }))
 
-    return JSONResponse(status_code=200, content=result)
+    return JSONResponse(status_code=200, content=response_body)
 
 
 # ---------------------------------------------------------------------------

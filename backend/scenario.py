@@ -1,21 +1,31 @@
 """
-backend.scenario — ISI Scenario Simulation Engine
+backend.scenario — ISI Scenario Simulation Engine (v0.2)
 
-Pure-computation module. Zero I/O. Zero global state.
-All functions are deterministic and bounded.
+Pure-computation module. Zero I/O. Zero global state. Zero randomness.
+All functions are deterministic, bounded, and idempotent.
 
 Given a country's baseline axis scores and a set of adjustments,
-computes the simulated axis scores, composite, rank, classification,
-and deltas from baseline.
+computes the simulated axis scores, composite, rank, and classification.
 
 The ISI composite is:
     ISI_i = (A1_i + A2_i + A3_i + A4_i + A5_i + A6_i) / 6
 
-Classification thresholds (frozen v0.1):
+Classification thresholds (frozen):
     >= 0.25  → highly_concentrated
     >= 0.15  → moderately_concentrated
     >= 0.10  → mildly_concentrated
     <  0.10  → unconcentrated
+
+Response contract (v0.2):
+    {
+      "composite": float,       # [0.0, 1.0]
+      "rank": int,              # [1, N]
+      "classification": str,    # one of VALID_CLASSIFICATIONS
+      "axes": [                 # exactly 6 elements
+          {"slug": str, "value": float, "delta": float}
+      ],
+      "request_id": str         # UUID from middleware
+    }
 """
 
 from __future__ import annotations
@@ -27,7 +37,7 @@ from pydantic import BaseModel, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
-# Constants — frozen v0.1
+# Constants — frozen
 # ---------------------------------------------------------------------------
 
 NUM_AXES = 6
@@ -65,19 +75,29 @@ _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
 ]
 _CLASSIFICATION_DEFAULT = "unconcentrated"
 
+# Valid classification labels (for output sanitization)
+VALID_CLASSIFICATIONS: frozenset[str] = frozenset({
+    "highly_concentrated",
+    "moderately_concentrated",
+    "mildly_concentrated",
+    "unconcentrated",
+})
+
 
 # ---------------------------------------------------------------------------
-# Pydantic request model — strict validation
+# Pydantic request model — strict validation (PART 1)
 # ---------------------------------------------------------------------------
 
 class ScenarioRequest(BaseModel):
     """Validated scenario simulation request.
 
     Rejects:
-      - unknown fields
+      - unknown fields (extra="forbid")
+      - missing country_code or adjustments
+      - non-string country_code
       - unknown axis slugs
       - adjustments outside [-0.20, +0.20]
-      - NaN, Inf, non-numeric values
+      - NaN / Inf / None / non-numeric values
     """
 
     model_config = {"extra": "forbid"}
@@ -88,6 +108,8 @@ class ScenarioRequest(BaseModel):
     @field_validator("country_code")
     @classmethod
     def _validate_country_code(cls, v: str) -> str:
+        if v is None:
+            raise ValueError("country_code must not be null.")
         v = v.strip().upper()
         if len(v) != 2 or not v.isalpha():
             raise ValueError(f"Invalid country code: '{v}'. Must be 2-letter ISO alpha.")
@@ -96,6 +118,8 @@ class ScenarioRequest(BaseModel):
     @field_validator("adjustments")
     @classmethod
     def _validate_adjustments(cls, v: dict[str, float]) -> dict[str, float]:
+        if v is None:
+            raise ValueError("adjustments must not be null.")
         if not v:
             raise ValueError("adjustments must contain at least one axis slug.")
         for slug, adj in v.items():
@@ -104,6 +128,8 @@ class ScenarioRequest(BaseModel):
                     f"Unknown axis slug: '{slug}'. "
                     f"Valid slugs: {sorted(AXIS_SLUG_SET)}"
                 )
+            if adj is None:
+                raise ValueError(f"Adjustment for '{slug}' must not be null.")
             if not isinstance(adj, (int, float)):
                 raise ValueError(f"Adjustment for '{slug}' must be numeric, got {type(adj).__name__}.")
             if math.isnan(adj) or math.isinf(adj):
@@ -117,7 +143,7 @@ class ScenarioRequest(BaseModel):
 
     @model_validator(mode="after")
     def _no_nan_in_adjustments(self) -> ScenarioRequest:
-        """Double-check after coercion."""
+        """Double-check after coercion — catches edge cases in numeric parsing."""
         for slug, adj in self.adjustments.items():
             if math.isnan(adj) or math.isinf(adj):
                 raise ValueError(f"Adjustment for '{slug}' is not finite after coercion.")
@@ -132,6 +158,7 @@ def classify(composite: float) -> str:
     """Map a composite score to its classification string.
 
     Deterministic. Safe for any float in [0, 1].
+    Always returns a member of VALID_CLASSIFICATIONS.
     """
     for threshold, label in _CLASSIFICATION_THRESHOLDS:
         if composite >= threshold:
@@ -161,7 +188,7 @@ def compute_rank(
     simulated_composite: float,
     all_baselines: list[dict[str, Any]],
 ) -> int:
-    """Compute rank (1 = highest dependency) among all 27 countries.
+    """Compute rank (1 = highest dependency) among all countries.
 
     Replaces the target country's baseline composite with the simulated value,
     then sorts descending. Ties are broken by country code (alphabetical).
@@ -190,6 +217,7 @@ def simulate(
     country_code: str,
     adjustments: dict[str, float],
     all_baselines: list[dict[str, Any]],
+    request_id: str,
 ) -> dict[str, Any]:
     """Run a scenario simulation for one country.
 
@@ -197,13 +225,15 @@ def simulate(
         country_code: ISO-2 country code (uppercase, validated).
         adjustments: {axis_slug: delta} — each in [-0.20, +0.20].
         all_baselines: The full countries array from isi.json.
+        request_id: UUID from middleware (passed through to response).
 
     Returns:
-        Structured result dict with baseline, simulated, delta sections.
+        Flat response dict matching the v0.2 contract:
+        {composite, rank, classification, axes[], request_id}
 
     Raises:
         ValueError: If country_code not found in baselines.
-        RuntimeError: If any numerical invariant is violated.
+        RuntimeError: If baseline data is corrupt or output sanitization fails.
     """
     # --- Find baseline for the target country ---
     baseline_entry: dict[str, Any] | None = None
@@ -224,51 +254,55 @@ def simulate(
             raise RuntimeError(f"Baseline data corrupt: missing or non-numeric '{key}' for {country_code}.")
         baseline_axes[slug] = clamp01(float(raw))
 
-    baseline_composite = clamp01(float(baseline_entry.get("isi_composite", 0.0)))
-
-    # --- Compute baseline rank ---
-    baseline_rank = compute_rank(country_code, baseline_composite, all_baselines)
-    baseline_classification = classify(baseline_composite)
-
-    # --- Apply adjustments → simulated axes ---
+    # --- Apply adjustments → simulated axes (PART 2 — safe computation) ---
     simulated_axes: dict[str, float] = {}
-    axis_deltas: dict[str, float] = {}
     for slug in AXIS_SLUGS:
         adj = adjustments.get(slug, 0.0)
         simulated_axes[slug] = clamp01(baseline_axes[slug] + adj)
-        axis_deltas[slug] = round(simulated_axes[slug] - baseline_axes[slug], 10)
 
     # --- Compute simulated composite ---
     simulated_composite = compute_composite(simulated_axes)
     simulated_rank = compute_rank(country_code, simulated_composite, all_baselines)
     simulated_classification = classify(simulated_composite)
 
-    # --- Final invariant checks ---
-    assert 0.0 <= simulated_composite <= 1.0, f"Composite {simulated_composite} out of [0,1]"
-    assert 1 <= simulated_rank <= len(all_baselines), f"Rank {simulated_rank} out of range"
-    for slug, score in simulated_axes.items():
-        assert 0.0 <= score <= 1.0, f"Axis {slug} = {score} out of [0,1]"
+    # --- PART 3 — Bound output sanitization ---
+    # Clamp axis values to [0, 1]
+    for slug in AXIS_SLUGS:
+        simulated_axes[slug] = clamp01(simulated_axes[slug])
+    # Clamp composite to [0, 1]
+    simulated_composite = clamp01(simulated_composite)
+    # Ensure rank is integer
+    simulated_rank = int(simulated_rank)
+    # Ensure classification is valid string
+    if simulated_classification not in VALID_CLASSIFICATIONS:
+        raise RuntimeError(
+            f"Output sanitization failed: classification '{simulated_classification}' "
+            f"is not in {sorted(VALID_CLASSIFICATIONS)}."
+        )
+    # Ensure no NaN in any output value
+    if math.isnan(simulated_composite) or math.isinf(simulated_composite):
+        raise RuntimeError("Output sanitization failed: composite is NaN or Inf.")
+    for slug, val in simulated_axes.items():
+        if math.isnan(val) or math.isinf(val):
+            raise RuntimeError(f"Output sanitization failed: axis '{slug}' is NaN or Inf.")
 
-    # --- Build response ---
+    # --- Build axes list with deltas ---
+    axes_list: list[dict[str, Any]] = []
+    for slug in AXIS_SLUGS:
+        delta = round(simulated_axes[slug] - baseline_axes[slug], 10)
+        if math.isnan(delta) or math.isinf(delta):
+            raise RuntimeError(f"Output sanitization failed: delta for '{slug}' is NaN or Inf.")
+        axes_list.append({
+            "slug": slug,
+            "value": round(simulated_axes[slug], 10),
+            "delta": delta,
+        })
+
+    # --- PART 5 — Structured response contract (no extra fields, no null fields) ---
     return {
-        "ok": True,
-        "baseline": {
-            "country": country_code,
-            "country_name": baseline_entry.get("country_name", country_code),
-            "axis_scores": {slug: round(baseline_axes[slug], 10) for slug in AXIS_SLUGS},
-            "composite": round(baseline_composite, 10),
-            "rank": baseline_rank,
-            "classification": baseline_classification,
-        },
-        "simulated": {
-            "axis_scores": {slug: round(simulated_axes[slug], 10) for slug in AXIS_SLUGS},
-            "composite": round(simulated_composite, 10),
-            "rank": simulated_rank,
-            "classification": simulated_classification,
-        },
-        "delta": {
-            "composite": round(simulated_composite - baseline_composite, 10),
-            "rank_change": simulated_rank - baseline_rank,
-            "axis_deltas": {slug: round(axis_deltas[slug], 10) for slug in AXIS_SLUGS},
-        },
+        "composite": round(simulated_composite, 10),
+        "rank": simulated_rank,
+        "classification": simulated_classification,
+        "axes": axes_list,
+        "request_id": request_id,
     }
