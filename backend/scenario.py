@@ -33,7 +33,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -91,19 +91,23 @@ VALID_CLASSIFICATIONS: frozenset[str] = frozenset({
 class ScenarioRequest(BaseModel):
     """Validated scenario simulation request.
 
+    Accepts:
+      - country_code OR countryCode (camelCase alias for frontend compat)
+      - adjustments: dict of axis_slug → float delta
+      - empty adjustments {} → treated as zero-delta (returns baseline)
+      - extra fields are silently ignored (frontend may send metadata)
+
     Rejects:
-      - unknown fields (extra="forbid")
-      - missing country_code or adjustments
-      - non-string country_code
+      - missing country_code
       - unknown axis slugs
       - adjustments outside [-0.20, +0.20]
       - NaN / Inf / None / non-numeric values
     """
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore", "populate_by_name": True}
 
-    country_code: str
-    adjustments: dict[str, float]
+    country_code: str = Field(..., alias="countryCode")
+    adjustments: dict[str, float] = Field(default_factory=dict)
 
     @field_validator("country_code")
     @classmethod
@@ -119,9 +123,7 @@ class ScenarioRequest(BaseModel):
     @classmethod
     def _validate_adjustments(cls, v: dict[str, float]) -> dict[str, float]:
         if v is None:
-            raise ValueError("adjustments must not be null.")
-        if not v:
-            raise ValueError("adjustments must contain at least one axis slug.")
+            return {}
         for slug, adj in v.items():
             if slug not in AXIS_SLUG_SET:
                 raise ValueError(
