@@ -1,10 +1,10 @@
 """
-backend.scenario — ISI Scenario Simulation Engine (v0.2)
+backend.scenario — ISI Scenario Simulation Engine (v0.3)
 
 Pure-computation module. Zero I/O. Zero global state. Zero randomness.
 All functions are deterministic, bounded, and idempotent.
 
-Given a country's baseline axis scores and a set of adjustments,
+Given a country's baseline axis scores and a set of axis shifts,
 computes the simulated axis scores, composite, rank, and classification.
 
 The ISI composite is:
@@ -16,22 +16,39 @@ Classification thresholds (frozen):
     >= 0.10  → mildly_concentrated
     <  0.10  → unconcentrated
 
-Response contract (v0.2):
+Request schema (v0.3):
     {
-      "composite": float,       # [0.0, 1.0]
-      "rank": int,              # [1, N]
-      "classification": str,    # one of VALID_CLASSIFICATIONS
-      "axes": [                 # exactly 6 elements
-          {"slug": str, "value": float, "delta": float}
-      ],
-      "request_id": str         # UUID from middleware
+      "country_code": str,        # 2-letter uppercase ISO
+      "axis_shifts": {             # 0–6 keys, all optional
+          "<slug>": float          # each in [-0.20, +0.20]
+      }
+    }
+
+    Accepted field aliases (frontend compat):
+      country_code  OR  countryCode
+      axis_shifts   OR  adjustments
+
+Response contract (v0.3):
+    {
+      "simulated_composite": float,
+      "simulated_rank": int,
+      "simulated_classification": str,
+      "axis_results": {
+          "financial": float,
+          "energy": float,
+          "technology": float,
+          "defense": float,
+          "critical_inputs": float,
+          "logistics": float
+      },
+      "request_id": str
     }
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Dict
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -85,29 +102,41 @@ VALID_CLASSIFICATIONS: frozenset[str] = frozenset({
 
 
 # ---------------------------------------------------------------------------
-# Pydantic request model — strict validation (PART 1)
+# Pydantic request model — strict, schema-explicit validation
 # ---------------------------------------------------------------------------
 
 class ScenarioRequest(BaseModel):
     """Validated scenario simulation request.
 
-    Accepts:
-      - country_code OR countryCode (camelCase alias for frontend compat)
-      - adjustments: dict of axis_slug → float delta
-      - empty adjustments {} → treated as zero-delta (returns baseline)
+    Accepts (with aliases for frontend compatibility):
+      - country_code OR countryCode   → 2-letter uppercase ISO
+      - axis_shifts  OR adjustments   → dict of axis_slug → float delta
+      - empty axis_shifts {}          → treated as zero-delta (returns baseline)
       - extra fields are silently ignored (frontend may send metadata)
 
-    Rejects:
+    Rejects (with structured 422):
       - missing country_code
-      - unknown axis slugs
-      - adjustments outside [-0.20, +0.20]
-      - NaN / Inf / None / non-numeric values
+      - country_code not exactly 2 uppercase alpha chars
+      - unknown axis slugs in axis_shifts
+      - shift values outside [-0.20, +0.20]
+      - NaN / Inf / None / non-numeric shift values
+      - string-typed shift values (no implicit coercion)
     """
 
     model_config = {"extra": "ignore", "populate_by_name": True}
 
-    country_code: str = Field(..., alias="countryCode")
-    adjustments: dict[str, float] = Field(default_factory=dict)
+    country_code: str = Field(
+        ...,
+        alias="countryCode",
+        min_length=2,
+        max_length=2,
+        description="2-letter uppercase ISO country code (EU-27)",
+    )
+    axis_shifts: Dict[str, float] = Field(
+        default_factory=dict,
+        alias="adjustments",
+        description="Per-axis shift deltas. Keys must be canonical axis slugs. Values in [-0.20, +0.20].",
+    )
 
     @field_validator("country_code")
     @classmethod
@@ -116,39 +145,45 @@ class ScenarioRequest(BaseModel):
             raise ValueError("country_code must not be null.")
         v = v.strip().upper()
         if len(v) != 2 or not v.isalpha():
-            raise ValueError(f"Invalid country code: '{v}'. Must be 2-letter ISO alpha.")
+            raise ValueError(f"Invalid country code: '{v}'. Must be exactly 2 uppercase ISO alpha characters.")
         return v
 
-    @field_validator("adjustments")
+    @field_validator("axis_shifts")
     @classmethod
-    def _validate_adjustments(cls, v: dict[str, float]) -> dict[str, float]:
+    def _validate_axis_shifts(cls, v: Dict[str, float]) -> Dict[str, float]:
         if v is None:
             return {}
-        for slug, adj in v.items():
+        for slug, shift in v.items():
             if slug not in AXIS_SLUG_SET:
                 raise ValueError(
                     f"Unknown axis slug: '{slug}'. "
                     f"Valid slugs: {sorted(AXIS_SLUG_SET)}"
                 )
-            if adj is None:
-                raise ValueError(f"Adjustment for '{slug}' must not be null.")
-            if not isinstance(adj, (int, float)):
-                raise ValueError(f"Adjustment for '{slug}' must be numeric, got {type(adj).__name__}.")
-            if math.isnan(adj) or math.isinf(adj):
-                raise ValueError(f"Adjustment for '{slug}' must be finite (got {'NaN' if math.isnan(adj) else 'Inf'}).")
-            if adj < -MAX_ADJUSTMENT or adj > MAX_ADJUSTMENT:
+            if shift is None:
+                raise ValueError(f"Shift for '{slug}' must not be null.")
+            if not isinstance(shift, (int, float)):
                 raise ValueError(
-                    f"Adjustment for '{slug}' = {adj} is out of range "
+                    f"Shift for '{slug}' must be numeric float, got {type(shift).__name__}. "
+                    f"No implicit coercion from string."
+                )
+            if math.isnan(shift) or math.isinf(shift):
+                raise ValueError(
+                    f"Shift for '{slug}' must be finite "
+                    f"(got {'NaN' if math.isnan(shift) else 'Inf'})."
+                )
+            if shift < -MAX_ADJUSTMENT or shift > MAX_ADJUSTMENT:
+                raise ValueError(
+                    f"Shift for '{slug}' = {shift} is out of range "
                     f"[{-MAX_ADJUSTMENT}, +{MAX_ADJUSTMENT}]."
                 )
         return v
 
     @model_validator(mode="after")
-    def _no_nan_in_adjustments(self) -> ScenarioRequest:
-        """Double-check after coercion — catches edge cases in numeric parsing."""
-        for slug, adj in self.adjustments.items():
-            if math.isnan(adj) or math.isinf(adj):
-                raise ValueError(f"Adjustment for '{slug}' is not finite after coercion.")
+    def _post_coercion_check(self) -> ScenarioRequest:
+        """Belt-and-suspenders: re-check after Pydantic coercion."""
+        for slug, shift in self.axis_shifts.items():
+            if math.isnan(shift) or math.isinf(shift):
+                raise ValueError(f"Shift for '{slug}' is not finite after coercion.")
         return self
 
 
@@ -217,7 +252,7 @@ def compute_rank(
 
 def simulate(
     country_code: str,
-    adjustments: dict[str, float],
+    axis_shifts: dict[str, float],
     all_baselines: list[dict[str, Any]],
     request_id: str,
 ) -> dict[str, Any]:
@@ -225,13 +260,14 @@ def simulate(
 
     Args:
         country_code: ISO-2 country code (uppercase, validated).
-        adjustments: {axis_slug: delta} — each in [-0.20, +0.20].
+        axis_shifts: {axis_slug: delta} — each in [-0.20, +0.20]. May be empty.
         all_baselines: The full countries array from isi.json.
         request_id: UUID from middleware (passed through to response).
 
     Returns:
-        Flat response dict matching the v0.2 contract:
-        {composite, rank, classification, axes[], request_id}
+        Deterministic response dict matching the v0.3 contract:
+        {simulated_composite, simulated_rank, simulated_classification,
+         axis_results, request_id}
 
     Raises:
         ValueError: If country_code not found in baselines.
@@ -256,55 +292,41 @@ def simulate(
             raise RuntimeError(f"Baseline data corrupt: missing or non-numeric '{key}' for {country_code}.")
         baseline_axes[slug] = clamp01(float(raw))
 
-    # --- Apply adjustments → simulated axes (PART 2 — safe computation) ---
+    # --- Apply axis_shifts → simulated axes ---
     simulated_axes: dict[str, float] = {}
     for slug in AXIS_SLUGS:
-        adj = adjustments.get(slug, 0.0)
-        simulated_axes[slug] = clamp01(baseline_axes[slug] + adj)
+        shift = axis_shifts.get(slug, 0.0)
+        simulated_axes[slug] = clamp01(baseline_axes[slug] + shift)
 
     # --- Compute simulated composite ---
     simulated_composite = compute_composite(simulated_axes)
     simulated_rank = compute_rank(country_code, simulated_composite, all_baselines)
     simulated_classification = classify(simulated_composite)
 
-    # --- PART 3 — Bound output sanitization ---
-    # Clamp axis values to [0, 1]
+    # --- Bound output sanitization ---
     for slug in AXIS_SLUGS:
         simulated_axes[slug] = clamp01(simulated_axes[slug])
-    # Clamp composite to [0, 1]
     simulated_composite = clamp01(simulated_composite)
-    # Ensure rank is integer
     simulated_rank = int(simulated_rank)
-    # Ensure classification is valid string
+
     if simulated_classification not in VALID_CLASSIFICATIONS:
         raise RuntimeError(
             f"Output sanitization failed: classification '{simulated_classification}' "
             f"is not in {sorted(VALID_CLASSIFICATIONS)}."
         )
-    # Ensure no NaN in any output value
     if math.isnan(simulated_composite) or math.isinf(simulated_composite):
-        raise RuntimeError("Output sanitization failed: composite is NaN or Inf.")
+        raise RuntimeError("Output sanitization failed: simulated_composite is NaN or Inf.")
     for slug, val in simulated_axes.items():
         if math.isnan(val) or math.isinf(val):
             raise RuntimeError(f"Output sanitization failed: axis '{slug}' is NaN or Inf.")
 
-    # --- Build axes list with deltas ---
-    axes_list: list[dict[str, Any]] = []
-    for slug in AXIS_SLUGS:
-        delta = round(simulated_axes[slug] - baseline_axes[slug], 10)
-        if math.isnan(delta) or math.isinf(delta):
-            raise RuntimeError(f"Output sanitization failed: delta for '{slug}' is NaN or Inf.")
-        axes_list.append({
-            "slug": slug,
-            "value": round(simulated_axes[slug], 10),
-            "delta": delta,
-        })
-
-    # --- PART 5 — Structured response contract (no extra fields, no null fields) ---
+    # --- Deterministic response contract (v0.3) ---
     return {
-        "composite": round(simulated_composite, 10),
-        "rank": simulated_rank,
-        "classification": simulated_classification,
-        "axes": axes_list,
+        "simulated_composite": round(simulated_composite, 10),
+        "simulated_rank": simulated_rank,
+        "simulated_classification": simulated_classification,
+        "axis_results": {
+            slug: round(simulated_axes[slug], 10) for slug in AXIS_SLUGS
+        },
         "request_id": request_id,
     }

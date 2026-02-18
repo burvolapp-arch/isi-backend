@@ -1,13 +1,13 @@
 """
-tests/test_scenario.py — Unit tests for ISI scenario simulation engine (v0.2).
+tests/test_scenario.py — Unit tests for ISI scenario simulation engine (v0.3).
 
-Tests the pure computation module (backend.scenario) directly,
-and the POST /scenario endpoint via FastAPI TestClient.
+Tests the pure computation module (backend.scenario) directly.
 
-Response contract (v0.2):
-    {composite, rank, classification, axes[], request_id}
+Response contract (v0.3):
+    {simulated_composite, simulated_rank, simulated_classification,
+     axis_results: {slug: float}, request_id}
 
-Requires: pytest, httpx (FastAPI TestClient dependency)
+Requires: pytest
 """
 
 from __future__ import annotations
@@ -181,108 +181,124 @@ class TestSimulate:
         """Core test: SE baseline + defense +0.10 → composite increases, values bounded."""
         result = simulate(
             country_code="SE",
-            adjustments={"defense": 0.10},
+            axis_shifts={"defense": 0.10},
             all_baselines=all_baselines,
             request_id="test-001",
         )
 
-        # v0.2 flat contract
-        assert "composite" in result
-        assert "rank" in result
-        assert "classification" in result
-        assert "axes" in result
+        # v0.3 response contract
+        assert "simulated_composite" in result
+        assert "simulated_rank" in result
+        assert "simulated_classification" in result
+        assert "axis_results" in result
         assert "request_id" in result
         assert result["request_id"] == "test-001"
 
         # No extra fields
-        assert set(result.keys()) == {"composite", "rank", "classification", "axes", "request_id"}
+        assert set(result.keys()) == {
+            "simulated_composite", "simulated_rank", "simulated_classification",
+            "axis_results", "request_id",
+        }
 
         # Composite is bounded
-        assert 0.0 <= result["composite"] <= 1.0
+        assert 0.0 <= result["simulated_composite"] <= 1.0
 
         # Rank is positive integer
-        assert isinstance(result["rank"], int)
-        assert 1 <= result["rank"] <= 27
+        assert isinstance(result["simulated_rank"], int)
+        assert 1 <= result["simulated_rank"] <= 27
 
         # Classification is valid
-        assert result["classification"] in VALID_CLASSIFICATIONS
+        assert result["simulated_classification"] in VALID_CLASSIFICATIONS
 
-        # Axes: exactly 6, each with slug/value/delta, no NaN, bounded
-        assert isinstance(result["axes"], list)
-        assert len(result["axes"]) == 6
-        for ax in result["axes"]:
-            assert set(ax.keys()) == {"slug", "value", "delta"}
-            assert ax["slug"] in AXIS_SLUGS
-            assert 0.0 <= ax["value"] <= 1.0
-            assert not math.isnan(ax["value"])
-            assert not math.isnan(ax["delta"])
+        # axis_results: dict with exactly 6 canonical slugs, all bounded, no NaN
+        ar = result["axis_results"]
+        assert isinstance(ar, dict)
+        assert set(ar.keys()) == set(AXIS_SLUGS)
+        for slug, val in ar.items():
+            assert 0.0 <= val <= 1.0
+            assert not math.isnan(val)
 
         # Defense axis should have increased
-        defense_ax = next(a for a in result["axes"] if a["slug"] == "defense")
-        assert defense_ax["value"] == pytest.approx(0.40)
-        assert defense_ax["delta"] == pytest.approx(0.10)
+        assert ar["defense"] == pytest.approx(0.40)
 
-    def test_no_change_zero_adjustments(self, all_baselines):
-        """All-zero adjustments should produce zero deltas."""
+    def test_empty_axis_shifts_returns_baseline(self, all_baselines):
+        """Empty axis_shifts {} → zero deltas, returns baseline composite."""
         result = simulate(
             country_code="SE",
-            adjustments={"defense": 0.0},
+            axis_shifts={},
+            all_baselines=all_baselines,
+            request_id="test-empty",
+        )
+        # SE baseline: (0.15+0.10+0.25+0.30+0.20+0.18)/6 ≈ 0.1967
+        assert result["simulated_composite"] == pytest.approx(
+            (0.15 + 0.10 + 0.25 + 0.30 + 0.20 + 0.18) / 6, abs=1e-8
+        )
+
+    def test_no_change_zero_shifts(self, all_baselines):
+        """Explicit zero shifts produce same result as empty shifts."""
+        result = simulate(
+            country_code="SE",
+            axis_shifts={"defense": 0.0},
             all_baselines=all_baselines,
             request_id="test-002",
         )
-        for ax in result["axes"]:
-            assert ax["delta"] == pytest.approx(0.0)
+        baseline_result = simulate(
+            country_code="SE",
+            axis_shifts={},
+            all_baselines=all_baselines,
+            request_id="test-002",
+        )
+        assert result["simulated_composite"] == baseline_result["simulated_composite"]
+        assert result["axis_results"] == baseline_result["axis_results"]
 
     def test_clamp_at_one(self, all_baselines):
-        """Adjustment that pushes score above 1.0 should clamp."""
+        """Shift that pushes score above 1.0 should clamp."""
         result = simulate(
             country_code="SE",
-            adjustments={"defense": 0.20},  # 0.30 + 0.20 = 0.50 (still under 1.0)
+            axis_shifts={"defense": 0.20},  # 0.30 + 0.20 = 0.50 (still under 1.0)
             all_baselines=all_baselines,
             request_id="test-003",
         )
-        defense_ax = next(a for a in result["axes"] if a["slug"] == "defense")
-        assert defense_ax["value"] == pytest.approx(0.50)
+        assert result["axis_results"]["defense"] == pytest.approx(0.50)
 
     def test_clamp_at_zero(self, all_baselines):
-        """Negative adjustment should clamp at 0.0."""
+        """Negative shift should clamp at 0.0."""
         result = simulate(
             country_code="SE",
-            adjustments={"energy": -0.20},  # 0.10 - 0.20 = -0.10 → clamped to 0.0
+            axis_shifts={"energy": -0.20},  # 0.10 - 0.20 = -0.10 → clamped to 0.0
             all_baselines=all_baselines,
             request_id="test-004",
         )
-        energy_ax = next(a for a in result["axes"] if a["slug"] == "energy")
-        assert energy_ax["value"] == 0.0
+        assert result["axis_results"]["energy"] == 0.0
 
     def test_missing_country_raises(self, all_baselines):
         """Country not in baselines → ValueError."""
         with pytest.raises(ValueError, match="not found"):
             simulate(
                 country_code="XX",
-                adjustments={"defense": 0.10},
+                axis_shifts={"defense": 0.10},
                 all_baselines=all_baselines,
                 request_id="test-005",
             )
 
-    def test_multiple_adjustments(self, all_baselines):
-        """Multiple axes adjusted simultaneously."""
+    def test_multiple_shifts(self, all_baselines):
+        """Multiple axes shifted simultaneously."""
         result = simulate(
             country_code="SE",
-            adjustments={"defense": 0.10, "energy": -0.05, "financial": 0.05},
+            axis_shifts={"defense": 0.10, "energy": -0.05, "financial": 0.05},
             all_baselines=all_baselines,
             request_id="test-006",
         )
-        axes_by_slug = {a["slug"]: a for a in result["axes"]}
-        assert axes_by_slug["defense"]["value"] == pytest.approx(0.40)
-        assert axes_by_slug["energy"]["value"] == pytest.approx(0.05)
-        assert axes_by_slug["financial"]["value"] == pytest.approx(0.20)
+        ar = result["axis_results"]
+        assert ar["defense"] == pytest.approx(0.40)
+        assert ar["energy"] == pytest.approx(0.05)
+        assert ar["financial"] == pytest.approx(0.20)
 
     def test_idempotent(self, all_baselines):
         """Same inputs always produce identical outputs (deterministic)."""
         kwargs = dict(
             country_code="SE",
-            adjustments={"defense": 0.10},
+            axis_shifts={"defense": 0.10},
             all_baselines=all_baselines,
             request_id="test-idem",
         )
@@ -294,19 +310,18 @@ class TestSimulate:
         """No field in the response may be None."""
         result = simulate(
             country_code="SE",
-            adjustments={"defense": 0.10},
+            axis_shifts={"defense": 0.10},
             all_baselines=all_baselines,
             request_id="test-null",
         )
-        assert result["composite"] is not None
-        assert result["rank"] is not None
-        assert result["classification"] is not None
-        assert result["axes"] is not None
+        assert result["simulated_composite"] is not None
+        assert result["simulated_rank"] is not None
+        assert result["simulated_classification"] is not None
+        assert result["axis_results"] is not None
         assert result["request_id"] is not None
-        for ax in result["axes"]:
-            assert ax["slug"] is not None
-            assert ax["value"] is not None
-            assert ax["delta"] is not None
+        for slug, val in result["axis_results"].items():
+            assert slug is not None
+            assert val is not None
 
 
 # ---------------------------------------------------------------------------
@@ -315,48 +330,67 @@ class TestSimulate:
 
 class TestScenarioRequestValidation:
     def test_valid_request(self):
-        req = ScenarioRequest(country_code="SE", adjustments={"defense": 0.10})
+        req = ScenarioRequest(country_code="SE", axis_shifts={"defense": 0.10})
         assert req.country_code == "SE"
-        assert req.adjustments["defense"] == 0.10
+        assert req.axis_shifts["defense"] == 0.10
 
     def test_uppercase_country(self):
-        req = ScenarioRequest(country_code="se", adjustments={"defense": 0.10})
+        req = ScenarioRequest(country_code="se", axis_shifts={"defense": 0.10})
         assert req.country_code == "SE"
 
     def test_unknown_slug_rejected(self):
         with pytest.raises(Exception):
-            ScenarioRequest(country_code="SE", adjustments={"unknown_axis": 0.10})
+            ScenarioRequest(country_code="SE", axis_shifts={"unknown_axis": 0.10})
 
     def test_out_of_range_rejected(self):
         with pytest.raises(Exception):
-            ScenarioRequest(country_code="SE", adjustments={"defense": 0.50})
+            ScenarioRequest(country_code="SE", axis_shifts={"defense": 0.50})
 
     def test_negative_out_of_range_rejected(self):
         with pytest.raises(Exception):
-            ScenarioRequest(country_code="SE", adjustments={"defense": -0.50})
+            ScenarioRequest(country_code="SE", axis_shifts={"defense": -0.50})
 
     def test_nan_rejected(self):
         with pytest.raises(Exception):
-            ScenarioRequest(country_code="SE", adjustments={"defense": float("nan")})
+            ScenarioRequest(country_code="SE", axis_shifts={"defense": float("nan")})
 
-    def test_empty_adjustments_rejected(self):
-        with pytest.raises(Exception):
-            ScenarioRequest(country_code="SE", adjustments={})
+    def test_empty_axis_shifts_accepted(self):
+        """Empty axis_shifts {} is valid — returns baseline (no deltas)."""
+        req = ScenarioRequest(country_code="SE", axis_shifts={})
+        assert req.axis_shifts == {}
 
-    def test_extra_fields_rejected(self):
-        with pytest.raises(Exception):
-            ScenarioRequest(
-                country_code="SE",
-                adjustments={"defense": 0.10},
-                extra_field="should fail",  # type: ignore[call-arg]
-            )
+    def test_default_axis_shifts_empty(self):
+        """axis_shifts defaults to {} when omitted."""
+        req = ScenarioRequest(country_code="SE")
+        assert req.axis_shifts == {}
+
+    def test_extra_fields_ignored(self):
+        """Extra fields silently ignored (frontend may send metadata)."""
+        req = ScenarioRequest(
+            country_code="SE",
+            axis_shifts={"defense": 0.10},
+            extra_field="should be ignored",  # type: ignore[call-arg]
+        )
+        assert req.country_code == "SE"
+        assert req.axis_shifts == {"defense": 0.10}
 
     def test_invalid_country_code(self):
         with pytest.raises(Exception):
-            ScenarioRequest(country_code="123", adjustments={"defense": 0.10})
+            ScenarioRequest(country_code="123", axis_shifts={"defense": 0.10})
 
-    def test_boundary_adjustment_accepted(self):
-        req = ScenarioRequest(country_code="SE", adjustments={"defense": 0.20})
-        assert req.adjustments["defense"] == 0.20
-        req2 = ScenarioRequest(country_code="SE", adjustments={"defense": -0.20})
-        assert req2.adjustments["defense"] == -0.20
+    def test_boundary_shift_accepted(self):
+        req = ScenarioRequest(country_code="SE", axis_shifts={"defense": 0.20})
+        assert req.axis_shifts["defense"] == 0.20
+        req2 = ScenarioRequest(country_code="SE", axis_shifts={"defense": -0.20})
+        assert req2.axis_shifts["defense"] == -0.20
+
+    def test_alias_countryCode(self):
+        """Frontend sends camelCase countryCode — should be accepted."""
+        req = ScenarioRequest.model_validate({"countryCode": "SE", "adjustments": {"defense": 0.10}})
+        assert req.country_code == "SE"
+        assert req.axis_shifts == {"defense": 0.10}
+
+    def test_alias_adjustments(self):
+        """Frontend sends 'adjustments' as alias for axis_shifts."""
+        req = ScenarioRequest.model_validate({"country_code": "SE", "adjustments": {"energy": 0.05}})
+        assert req.axis_shifts == {"energy": 0.05}

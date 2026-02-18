@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-isi_api_v01.py — ISI API Server (hardened, v0.2)
+isi_api_v01.py — ISI API Server (hardened, v0.3)
 
 Serves pre-materialized JSON artifacts produced by
 export_isi_backend_v01.py and a deterministic scenario simulation
@@ -304,17 +304,26 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 
 # ---------------------------------------------------------------------------
-# Validation error handler — converts FastAPI's 422 to structured 400
+# Validation error handler — 422 with received_payload (v0.3)
 #
 # When using `body: ScenarioRequest` as a parameter, FastAPI validates
 # the JSON body before the handler runs. If validation fails, FastAPI raises
 # RequestValidationError which defaults to 422. We intercept it here and
-# return the INVALID_SCENARIO_INPUT format the frontend expects as 400.
+# return a structured VALIDATION_ERROR with the raw payload echoed back.
 # This also catches malformed JSON (missing Content-Type, non-JSON body, etc.)
 # ---------------------------------------------------------------------------
 
 @app.exception_handler(RequestValidationError)
 async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    request_id: str = getattr(request.state, "request_id", "unknown")
+
+    # Attempt to echo back what the client sent (best-effort)
+    received_payload: Any = None
+    try:
+        received_payload = exc.body  # FastAPI attaches raw body to the exception
+    except Exception:
+        pass
+
     errors = exc.errors()
     detail_items = []
     for e in errors:
@@ -323,12 +332,22 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
             "field": ".".join(loc_parts) if loc_parts else "body",
             "message": e.get("msg", "Validation failed"),
         })
+
+    logger.warning(json.dumps({
+        "event": "validation_error",
+        "request_id": request_id,
+        "path": request.url.path,
+        "errors": detail_items,
+        "received_payload": received_payload if isinstance(received_payload, (dict, list, str, type(None))) else str(received_payload),
+    }))
+
     return JSONResponse(
-        status_code=400,
+        status_code=422,
         content={
-            "error": "INVALID_SCENARIO_INPUT",
-            "message": "Request validation failed.",
-            "details": detail_items[0] if len(detail_items) == 1 else detail_items,
+            "error": "VALIDATION_ERROR",
+            "detail": detail_items[0] if len(detail_items) == 1 else detail_items,
+            "received_payload": received_payload if isinstance(received_payload, (dict, list, str, type(None))) else str(received_payload),
+            "request_id": request_id,
         },
     )
 
@@ -449,7 +468,7 @@ async def root(request: Request) -> dict:
 async def health(request: Request) -> JSONResponse:
     """Liveness probe — primitive, isolated, zero dependencies.
 
-    ALWAYS returns HTTP 200 with {"status": "ok", "version": "v0.2"}.
+    ALWAYS returns HTTP 200 with {"status": "ok", "version": "v0.3"}.
     No file I/O, no state reads, no cache access, no computation.
     Survives any internal failure. Safe for Railway healthcheck probing.
 
@@ -457,7 +476,7 @@ async def health(request: Request) -> JSONResponse:
     """
     return JSONResponse(
         status_code=200,
-        content={"status": "ok", "version": "v0.2"},
+        content={"status": "ok", "version": "v0.3"},
     )
 
 
@@ -604,15 +623,17 @@ async def get_isi(request: Request) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# POST /scenario — What-if scenario simulation (v0.2)
+# POST /scenario — What-if scenario simulation (v0.3)
 #
-# Accepts a country code and per-axis adjustments [-0.20, +0.20].
-# Returns flat: {composite, rank, classification, axes[], request_id}.
+# Accepts a country code and per-axis shifts [-0.20, +0.20].
+# Returns: {simulated_composite, simulated_rank, simulated_classification,
+#           axis_results: {slug: float}, request_id}.
 # Deterministic, bounded, validated, idempotent.
 # No global state mutation. No caching. No randomness.
 #
 # Error contract:
-#   400 → INVALID_SCENARIO_INPUT (validation failures)
+#   422 → VALIDATION_ERROR (Pydantic / schema failures, with received_payload)
+#   400 → INVALID_SCENARIO_INPUT (EU-27 scope check)
 #   500 → SIMULATION_COMPUTATION_FAILED (output sanitization / internal)
 #   405 → GET on /scenario (method not allowed)
 # ---------------------------------------------------------------------------
@@ -630,37 +651,47 @@ async def scenario_get(request: Request) -> JSONResponse:
 @app.post("/scenario")
 @limiter.limit("60/minute")
 async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
-    """Deterministic what-if scenario simulation (v0.2).
+    """Deterministic what-if scenario simulation (v0.3).
 
-    PART 1 — Input validation → 400 (FastAPI + Pydantic auto-validates `body`).
-    PART 2 — Safe computation wrapper → 500 on unrecoverable.
-    PART 3 — Bound output sanitization (inside simulate()).
-    PART 4 — Idempotent, no global state mutation, deterministic.
-    PART 5 — Flat response: {composite, rank, classification, axes[], request_id}.
-    PART 6 — GET /scenario returns 405.
+    Input validation: 422 (FastAPI + Pydantic auto-validates `body`).
+    EU-27 scope check: 400.
+    Computation: simulate() → deterministic, bounded, idempotent.
+    Output sanitization: belt-and-suspenders post-compute check.
+    Response: {simulated_composite, simulated_rank, simulated_classification,
+               axis_results, request_id}.
 
     NOTE: `body: ScenarioRequest` uses FastAPI native body injection.
     This avoids manually calling `await request.json()` which is known to
     deadlock under BaseHTTPMiddleware stacking with Gunicorn/Uvicorn workers.
-    FastAPI handles JSON parsing + Pydantic validation BEFORE the handler runs.
-    Invalid JSON → 422 (FastAPI default). Invalid schema → 422.
     """
-    # PART 4 — request_id from middleware (deterministic tracing)
     request_id: str = getattr(request.state, "request_id", "unknown")
 
-    # ---- PART 1c: Validate country is in EU-27 scope ----
-    # (country_code format + axis slug + range validation already done by Pydantic)
+    # Log raw validated input
+    logger.info(json.dumps({
+        "event": "scenario_request",
+        "request_id": request_id,
+        "country_code": body.country_code,
+        "axis_shifts": body.axis_shifts,
+    }))
+
+    # Validate country is in EU-27 scope
     if body.country_code not in EU27_SET:
+        logger.warning(json.dumps({
+            "event": "scenario_country_not_eu27",
+            "request_id": request_id,
+            "country_code": body.country_code,
+        }))
         return JSONResponse(
             status_code=400,
             content={
                 "error": "INVALID_SCENARIO_INPUT",
                 "message": f"Country '{body.country_code}' is not in EU-27 scope.",
                 "details": {"country_code": body.country_code},
+                "request_id": request_id,
             },
         )
 
-    # ---- PART 1d: Load baseline data ----
+    # Load baseline data
     isi_data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if isi_data is None:
         logger.error(json.dumps({
@@ -672,6 +703,7 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
+                "request_id": request_id,
             },
         )
 
@@ -686,24 +718,24 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
+                "request_id": request_id,
             },
         )
 
-    # ---- PART 2: Safe computation wrapper ----
+    # Compute simulation
     try:
         result = simulate(
             country_code=body.country_code,
-            adjustments=body.adjustments,
+            axis_shifts=body.axis_shifts,
             all_baselines=all_baselines,
             request_id=request_id,
         )
     except Exception as exc:
-        # Log full error server-side; never leak to client
         logger.error(json.dumps({
             "event": "scenario_computation_failed",
             "request_id": request_id,
             "country_code": body.country_code,
-            "adjustments": body.adjustments,
+            "axis_shifts": body.axis_shifts,
             "error_type": type(exc).__name__,
             "error": str(exc),
         }))
@@ -712,43 +744,37 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
+                "request_id": request_id,
             },
         )
 
-    # ---- PART 3: Output sanitization (post-computation) ----
-    # simulate() already clamps + validates, but belt-and-suspenders here.
+    # Belt-and-suspenders output sanitization
     try:
-        composite = float(result["composite"])
-        rank = int(result["rank"])
-        classification = str(result["classification"])
-        axes = result["axes"]
+        import math as _math
+        from backend.scenario import VALID_CLASSIFICATIONS as _VC, AXIS_SLUGS as _SLUGS
+
+        sc = float(result["simulated_composite"])
+        sr = int(result["simulated_rank"])
+        scl = str(result["simulated_classification"])
+        ar = result["axis_results"]
         rid = str(result["request_id"])
 
-        import math as _math
-
-        if _math.isnan(composite) or _math.isinf(composite):
-            raise ValueError("composite is NaN/Inf")
-        if not (0.0 <= composite <= 1.0):
-            raise ValueError(f"composite {composite} out of [0,1]")
-        if not isinstance(rank, int) or rank < 1:
-            raise ValueError(f"rank {rank} is not a positive integer")
-
-        from backend.scenario import VALID_CLASSIFICATIONS as _VC
-        if classification not in _VC:
-            raise ValueError(f"classification '{classification}' invalid")
-
-        if not isinstance(axes, list) or len(axes) != 6:
-            raise ValueError(f"axes has {len(axes)} elements, expected 6")
-
-        for ax in axes:
-            v = float(ax["value"])
-            d = float(ax["delta"])
+        if _math.isnan(sc) or _math.isinf(sc):
+            raise ValueError("simulated_composite is NaN/Inf")
+        if not (0.0 <= sc <= 1.0):
+            raise ValueError(f"simulated_composite {sc} out of [0,1]")
+        if not isinstance(sr, int) or sr < 1:
+            raise ValueError(f"simulated_rank {sr} is not a positive integer")
+        if scl not in _VC:
+            raise ValueError(f"simulated_classification '{scl}' invalid")
+        if not isinstance(ar, dict) or len(ar) != 6:
+            raise ValueError(f"axis_results has {len(ar)} entries, expected 6")
+        for slug in _SLUGS:
+            v = float(ar[slug])
             if _math.isnan(v) or _math.isinf(v):
-                raise ValueError(f"axis '{ax['slug']}' value is NaN/Inf")
-            if _math.isnan(d) or _math.isinf(d):
-                raise ValueError(f"axis '{ax['slug']}' delta is NaN/Inf")
+                raise ValueError(f"axis_results['{slug}'] is NaN/Inf")
             if not (0.0 <= v <= 1.0):
-                raise ValueError(f"axis '{ax['slug']}' value {v} out of [0,1]")
+                raise ValueError(f"axis_results['{slug}'] = {v} out of [0,1]")
 
     except Exception as exc:
         logger.error(json.dumps({
@@ -762,18 +788,16 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
+                "request_id": request_id,
             },
         )
 
-    # ---- PART 5: Structured response contract (exact shape, no extras, no nulls) ----
+    # v0.3 response contract — exact shape, no extras, no nulls
     response_body = {
-        "composite": composite,
-        "rank": rank,
-        "classification": classification,
-        "axes": [
-            {"slug": ax["slug"], "value": float(ax["value"]), "delta": float(ax["delta"])}
-            for ax in axes
-        ],
+        "simulated_composite": sc,
+        "simulated_rank": sr,
+        "simulated_classification": scl,
+        "axis_results": {slug: float(ar[slug]) for slug in _SLUGS},
         "request_id": rid,
     }
 
@@ -781,7 +805,9 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
         "event": "scenario_success",
         "request_id": request_id,
         "country_code": body.country_code,
-        "composite": composite,
+        "simulated_composite": sc,
+        "simulated_rank": sr,
+        "simulated_classification": scl,
     }))
 
     return JSONResponse(status_code=200, content=response_body)
