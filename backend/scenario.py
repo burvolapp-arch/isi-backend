@@ -1,5 +1,5 @@
 """
-backend.scenario — ISI Scenario Simulation Engine (v0.5)
+backend.scenario — ISI Scenario Simulation Engine (scenario-v1)
 
 Thin, data-driven transformation layer on top of baseline ISI data.
 Zero I/O. Zero global state. Zero randomness. Zero duplicate registries.
@@ -22,56 +22,43 @@ Scenario computation model:
     adjustment = -0.10 means "10% decrease from baseline".
     adjustment range: [-0.20, +0.20]
 
-Input contract:
+Input contract (Pydantic-validated at the API layer):
     {
         "country": "SE",
         "adjustments": {
-            "financial_external_supplier_concentration": 0.0,
-            "energy_external_supplier_concentration": 0.0,
-            "technology_semiconductor_external_supplier_concentration": 0.0,
-            "defense_external_supplier_concentration": 0.0,
-            "critical_inputs_raw_materials_external_supplier_concentration": 0.0,
-            "logistics_freight_external_supplier_concentration": 0.0
+            "energy_external_supplier_concentration": -0.15,
+            "defense_external_supplier_concentration": 0.10
         }
     }
 
-    - country: 2-letter ISO, uppercased, must exist in baseline dataset
-    - adjustments: keyed by canonical long-form axis key
-    - unknown keys → 400 with explicit reason
-    - values clamped to [-0.20, +0.20]
-    - missing axes → adjustment = 0.0 (identity)
-
-Output contract:
+Output contract (ScenarioResponse — Pydantic-validated before return):
     {
         "country": "SE",
-        "baseline_composite": float,
-        "simulated_composite": float,
-        "baseline_rank": int,
-        "simulated_rank": int,
-        "baseline_classification": str,
-        "simulated_classification": str,
-        "axis_results": {
-            canonical_key: {
-                "baseline": float,
-                "simulated": float,
-                "delta": float
-            }
-        }
+        "baseline": { "composite": float, "rank": int, "classification": str,
+                       "axes": { canonical_key: float } },
+        "simulated": { ... same shape ... },
+        "delta":     { "composite": float, "rank": int,
+                       "axes": { canonical_key: float } },
+        "meta": { "version": "scenario-v1", "timestamp": ISO8601, "bounds": { "min": -0.2, "max": 0.2 } }
     }
 """
 
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from typing import Any
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants — single source of truth
 # ---------------------------------------------------------------------------
 
 NUM_AXES = 6
 MAX_ADJUSTMENT = 0.20
+SCENARIO_VERSION = "scenario-v1"
 
 # Classification thresholds — IDENTICAL to baseline endpoint logic
 _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
@@ -80,6 +67,9 @@ _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
     (0.10, "mildly_concentrated"),
 ]
 _CLASSIFICATION_DEFAULT = "unconcentrated"
+VALID_CLASSIFICATIONS: frozenset[str] = frozenset(
+    [label for _, label in _CLASSIFICATION_THRESHOLDS] + [_CLASSIFICATION_DEFAULT]
+)
 
 # Canonical long-form axis keys — these are the keys the frontend sends.
 CANONICAL_AXIS_KEYS: tuple[str, ...] = (
@@ -116,6 +106,145 @@ ISI_AXIS_KEYS: tuple[str, ...] = (
 
 # Reverse: isi.json key → canonical key
 ISI_KEY_TO_CANONICAL: dict[str, str] = {v: k for k, v in CANONICAL_TO_ISI_KEY.items()}
+
+# EU-27 country codes
+EU27_CODES: frozenset[str] = frozenset([
+    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES",
+    "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
+    "NL", "PL", "PT", "RO", "SE", "SI", "SK",
+])
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models — request
+# ---------------------------------------------------------------------------
+
+class ScenarioRequest(BaseModel):
+    """Strict input model for POST /scenario.
+
+    Validates country code and adjustment keys/values.
+    Missing adjustments default to empty dict (= no changes).
+    """
+
+    country: str = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="2-letter ISO country code, uppercase, must be in EU-27",
+    )
+    adjustments: dict[str, float] = Field(
+        default_factory=dict,
+        description="Axis adjustments keyed by canonical axis key. "
+                    "Values in [-0.20, +0.20]. Missing axes treated as 0.0.",
+    )
+
+    @field_validator("country")
+    @classmethod
+    def _validate_country(cls, v: str) -> str:
+        v = v.strip().upper()
+        if len(v) != 2 or not v.isalpha():
+            raise ValueError(f"'country' must be a 2-letter ISO code. Got: '{v}'.")
+        if v not in EU27_CODES:
+            raise ValueError(
+                f"Country '{v}' is not in the EU-27 dataset. "
+                f"Valid: {sorted(EU27_CODES)}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_adjustments(self) -> ScenarioRequest:
+        cleaned: dict[str, float] = {}
+        for key, val in self.adjustments.items():
+            if key not in VALID_CANONICAL_KEYS:
+                raise ValueError(
+                    f"Unknown axis key: '{key}'. "
+                    f"Valid keys: {sorted(VALID_CANONICAL_KEYS)}"
+                )
+            if math.isnan(val) or math.isinf(val):
+                raise ValueError(
+                    f"Adjustment for '{key}' must be a finite number. Got: {val!r}."
+                )
+            if not (-MAX_ADJUSTMENT <= val <= MAX_ADJUSTMENT):
+                raise ValueError(
+                    f"Adjustment for '{key}' must be in "
+                    f"[{-MAX_ADJUSTMENT}, {MAX_ADJUSTMENT}]. Got: {val}."
+                )
+            cleaned[key] = val
+        self.adjustments = cleaned
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models — response
+# ---------------------------------------------------------------------------
+
+class AxisScores(BaseModel):
+    """All 6 axis scores, always present, always finite floats in [0, 1]."""
+    financial_external_supplier_concentration: float
+    energy_external_supplier_concentration: float
+    technology_semiconductor_external_supplier_concentration: float
+    defense_external_supplier_concentration: float
+    critical_inputs_raw_materials_external_supplier_concentration: float
+    logistics_freight_external_supplier_concentration: float
+
+    @model_validator(mode="after")
+    def _no_nan_or_missing(self) -> AxisScores:
+        for key in CANONICAL_AXIS_KEYS:
+            v = getattr(self, key)
+            if v is None or math.isnan(v) or math.isinf(v):
+                raise ValueError(f"Axis '{key}' must be a finite float, got {v!r}")
+        return self
+
+
+class AxisDeltas(BaseModel):
+    """Per-axis delta (simulated - baseline). Always all 6 keys."""
+    financial_external_supplier_concentration: float
+    energy_external_supplier_concentration: float
+    technology_semiconductor_external_supplier_concentration: float
+    defense_external_supplier_concentration: float
+    critical_inputs_raw_materials_external_supplier_concentration: float
+    logistics_freight_external_supplier_concentration: float
+
+
+class BaselineBlock(BaseModel):
+    composite: float = Field(..., ge=0.0, le=1.0)
+    rank: int = Field(..., ge=1)
+    classification: str
+    axes: AxisScores
+
+
+class SimulatedBlock(BaseModel):
+    composite: float = Field(..., ge=0.0, le=1.0)
+    rank: int = Field(..., ge=1)
+    classification: str
+    axes: AxisScores
+
+
+class DeltaBlock(BaseModel):
+    composite: float
+    rank: int
+    axes: AxisDeltas
+
+
+class MetaBlock(BaseModel):
+    version: str = SCENARIO_VERSION
+    timestamp: str
+    bounds: dict[str, float] = Field(
+        default_factory=lambda: {"min": -MAX_ADJUSTMENT, "max": MAX_ADJUSTMENT}
+    )
+
+
+class ScenarioResponse(BaseModel):
+    """Guaranteed response shape for POST /scenario.
+
+    ABSOLUTE RULE: baseline.axes and simulated.axes MUST include
+    ALL 6 keys always. Never omit. Never null. Never NaN.
+    """
+    country: str
+    baseline: BaselineBlock
+    simulated: SimulatedBlock
+    delta: DeltaBlock
+    meta: MetaBlock
 
 
 # ---------------------------------------------------------------------------
@@ -181,18 +310,18 @@ def simulate(
     country_code: str,
     adjustments: dict[str, float],
     all_baselines: list[dict[str, Any]],
-) -> dict[str, Any]:
+) -> ScenarioResponse:
     """Run a scenario simulation for one country.
 
     Args:
-        country_code: Uppercase 2-letter ISO code.
+        country_code: Uppercase 2-letter ISO code (already validated).
         adjustments: {canonical_key: float} — adjustment factors in [-0.20, +0.20].
                      Missing axes default to 0.0.
                      Computation: simulated = clamp(baseline * (1 + adj), 0, 1)
         all_baselines: The countries[] array from isi.json.
 
     Returns:
-        Full response dict matching the output contract.
+        ScenarioResponse — Pydantic-validated, guaranteed complete.
 
     Raises:
         ValueError: country_code not found in baseline data.
@@ -209,9 +338,11 @@ def simulate(
         raise ValueError(f"Country '{country_code}' not found in ISI baseline data.")
 
     # Extract baseline axes and compute simulated axes
-    baseline_axes: dict[str, float] = {}
-    simulated_axes: dict[str, float] = {}
-    axis_results: dict[str, dict[str, float]] = {}
+    baseline_isi_axes: dict[str, float] = {}
+    simulated_isi_axes: dict[str, float] = {}
+    baseline_canonical: dict[str, float] = {}
+    simulated_canonical: dict[str, float] = {}
+    delta_canonical: dict[str, float] = {}
 
     for canonical_key in CANONICAL_AXIS_KEYS:
         isi_key = CANONICAL_TO_ISI_KEY[canonical_key]
@@ -226,18 +357,16 @@ def simulate(
         adj = adjustments.get(canonical_key, 0.0)
         simulated_val = clamp(baseline_val * (1.0 + adj), 0.0, 1.0)
 
-        baseline_axes[isi_key] = baseline_val
-        simulated_axes[isi_key] = simulated_val
+        baseline_isi_axes[isi_key] = baseline_val
+        simulated_isi_axes[isi_key] = simulated_val
 
-        axis_results[canonical_key] = {
-            "baseline": round(baseline_val, 10),
-            "simulated": round(simulated_val, 10),
-            "delta": round(simulated_val - baseline_val, 10),
-        }
+        baseline_canonical[canonical_key] = round(baseline_val, 10)
+        simulated_canonical[canonical_key] = round(simulated_val, 10)
+        delta_canonical[canonical_key] = round(simulated_val - baseline_val, 10)
 
     # Compute composites
-    baseline_composite = compute_composite(baseline_axes)
-    simulated_composite = compute_composite(simulated_axes)
+    baseline_composite = compute_composite(baseline_isi_axes)
+    simulated_composite = compute_composite(simulated_isi_axes)
 
     # Compute ranks
     baseline_rank = compute_rank(country_code, baseline_composite, all_baselines)
@@ -247,13 +376,27 @@ def simulate(
     baseline_classification = classify(baseline_composite)
     simulated_classification = classify(simulated_composite)
 
-    return {
-        "country": country_code,
-        "baseline_composite": round(baseline_composite, 10),
-        "simulated_composite": round(simulated_composite, 10),
-        "baseline_rank": baseline_rank,
-        "simulated_rank": simulated_rank,
-        "baseline_classification": baseline_classification,
-        "simulated_classification": simulated_classification,
-        "axis_results": axis_results,
-    }
+    # Build and validate response through Pydantic
+    return ScenarioResponse(
+        country=country_code,
+        baseline=BaselineBlock(
+            composite=round(baseline_composite, 10),
+            rank=baseline_rank,
+            classification=baseline_classification,
+            axes=AxisScores(**baseline_canonical),
+        ),
+        simulated=SimulatedBlock(
+            composite=round(simulated_composite, 10),
+            rank=simulated_rank,
+            classification=simulated_classification,
+            axes=AxisScores(**simulated_canonical),
+        ),
+        delta=DeltaBlock(
+            composite=round(simulated_composite - baseline_composite, 10),
+            rank=simulated_rank - baseline_rank,
+            axes=AxisDeltas(**delta_canonical),
+        ),
+        meta=MetaBlock(
+            timestamp=datetime.now(UTC).isoformat(),
+        ),
+    )

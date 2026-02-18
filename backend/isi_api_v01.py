@@ -84,7 +84,10 @@ from backend.security import (  # noqa: I001
 from backend.scenario import (  # noqa: I001, E402
     CANONICAL_AXIS_KEYS,
     MAX_ADJUSTMENT,
+    SCENARIO_VERSION,
     VALID_CANONICAL_KEYS,
+    ScenarioRequest,
+    ScenarioResponse,
     simulate,
 )
 
@@ -629,19 +632,19 @@ async def get_isi(request: Request) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# POST /scenario — What-if scenario simulation (v0.5)
+# POST /scenario — Contract-first scenario simulation (scenario-v1)
 #
-# Strict validation with clear error messages.
-# Input:  {"country": "SE", "adjustments": {"defense_external_supplier_concentration": 0.05}}
-# Output: {country, baseline_composite, simulated_composite, ...}
+# Pydantic-validated request AND response. No partial responses.
+# Input:  ScenarioRequest  {"country": "SE", "adjustments": {...}}
+# Output: ScenarioResponse {country, baseline, simulated, delta, meta}
 # Computation: simulated = clamp(baseline * (1 + adj), 0, 1)
 # Uses the SAME _get_or_load("isi", ...) data source as GET /isi.
 #
 # Error contract:
-#   400 → truly invalid input (missing country, unknown axis key, non-numeric)
-#   404 → country_code not found in dataset
-#   422 → malformed JSON (not even parseable as dict)
-#   500 → actual computation failure
+#   400 → BAD_INPUT: invalid country, unknown axis key, out-of-range value
+#   404 → COUNTRY_NOT_FOUND: country_code not in baseline dataset
+#   422 → VALIDATION_ERROR: malformed JSON (FastAPI catches this)
+#   500 → INTERNAL_ERROR: computation or serialization failure
 #   405 → GET on /scenario (method not allowed)
 # ---------------------------------------------------------------------------
 
@@ -655,131 +658,111 @@ async def scenario_get(request: Request) -> JSONResponse:
     )
 
 
-@app.post("/scenario")
+@app.get("/scenario/schema")
+@limiter.limit("60/minute")
+async def scenario_schema(request: Request) -> JSONResponse:
+    """Debug/alignment route: returns the scenario contract.
+
+    Shows AXIS_KEYS, example request, example success response, bounds.
+    """
+    return JSONResponse(
+        status_code=200,
+        content={
+            "axis_keys": list(CANONICAL_AXIS_KEYS),
+            "bounds": {"min": -MAX_ADJUSTMENT, "max": MAX_ADJUSTMENT},
+            "version": SCENARIO_VERSION,
+            "example_request": {
+                "country": "SE",
+                "adjustments": {
+                    "energy_external_supplier_concentration": -0.15,
+                    "defense_external_supplier_concentration": 0.10,
+                },
+            },
+            "example_response": {
+                "country": "SE",
+                "baseline": {
+                    "composite": 0.1967,
+                    "rank": 15,
+                    "classification": "moderately_concentrated",
+                    "axes": {k: 0.20 for k in CANONICAL_AXIS_KEYS},
+                },
+                "simulated": {
+                    "composite": 0.1950,
+                    "rank": 16,
+                    "classification": "moderately_concentrated",
+                    "axes": {k: 0.20 for k in CANONICAL_AXIS_KEYS},
+                },
+                "delta": {
+                    "composite": -0.0017,
+                    "rank": 1,
+                    "axes": {k: 0.0 for k in CANONICAL_AXIS_KEYS},
+                },
+                "meta": {
+                    "version": SCENARIO_VERSION,
+                    "timestamp": "2026-02-18T12:00:00+00:00",
+                    "bounds": {"min": -0.2, "max": 0.2},
+                },
+            },
+        },
+    )
+
+
+@app.post("/scenario", response_model=ScenarioResponse)
 @limiter.limit("60/minute")
 async def scenario(request: Request, body: dict) -> JSONResponse:
-    """Deterministic what-if scenario simulation (v0.5).
+    """Contract-first scenario simulation (scenario-v1).
 
-    Input:  {"country": "SE", "adjustments": {"defense_external_supplier_concentration": 0.05, ...}}
-    Output: {country, baseline_composite, simulated_composite, baseline_rank,
-             simulated_rank, baseline_classification, simulated_classification,
-             axis_results: {canonical_key: {baseline, simulated, delta}}}
+    Pydantic-validated request and response. Never returns partial data.
 
-    Strict validation:
-    - country: required, 2-letter, must be in EU-27
-    - adjustments: optional dict, keys must be canonical long-form axis keys
-    - adjustment values: must be numeric, clamped to [-0.20, +0.20]
-    - unknown axis keys → 400 with explicit reason
+    Input:  {"country": "SE", "adjustments": {"defense_external_supplier_concentration": 0.10}}
+    Output: Full ScenarioResponse with baseline, simulated, delta, meta blocks.
 
-    Computation model (multiplicative):
-        simulated = clamp(baseline * (1 + adjustment), 0.0, 1.0)
-
-    NOTE: `body: dict` uses FastAPI native body injection.
-    This avoids manually calling `await request.json()` which deadlocks
-    under BaseHTTPMiddleware stacking with Gunicorn/Uvicorn workers.
+    NOTE: `body: dict` uses FastAPI native body injection to avoid
+    BaseHTTPMiddleware body-stream deadlocks with Gunicorn/Uvicorn workers.
+    We then validate via ScenarioRequest ourselves for strict 400 errors.
     """
-    import math as _math
-
     request_id: str = getattr(request.state, "request_id", "unknown")
 
-    # --- Temporary diagnostics (print to stdout for Railway logs) ---
-    print(f"[scenario] request_id={request_id} raw_body={body}")
+    # --- Step 1: Validate input through Pydantic ---
+    try:
+        req = ScenarioRequest(**body)
+    except Exception as exc:
+        # Extract meaningful message from Pydantic ValidationError
+        message = str(exc)
+        # Pydantic v2 ValidationError has .errors()
+        details: dict[str, Any] | list[Any] | None = None
+        if hasattr(exc, "errors"):
+            errors = exc.errors()  # type: ignore[union-attr]
+            details = [
+                {
+                    "field": ".".join(str(p) for p in e.get("loc", [])),
+                    "message": e.get("msg", ""),
+                }
+                for e in errors
+            ]
+            if len(details) == 1:
+                message = details[0]["message"]
+                details = details[0]
 
-    # --- Validate top-level structure ---
-    if not isinstance(body, dict):
+        logger.warning(json.dumps({
+            "event": "scenario_bad_input",
+            "request_id": request_id,
+            "error": message[:500],
+        }))
+
         return JSONResponse(
             status_code=400,
             content={
                 "error": "BAD_INPUT",
-                "message": "Request body must be a JSON object.",
-                "received_payload": str(body)[:200],
+                "message": message[:500],
+                **({"details": details} if details else {}),
             },
         )
 
-    # --- Extract and validate country ---
-    country_raw = body.get("country")
-    if not country_raw or not isinstance(country_raw, str):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "BAD_INPUT",
-                "message": "Field 'country' is required and must be a string.",
-                "received_payload": {k: type(v).__name__ for k, v in body.items()},
-            },
-        )
+    country_code = req.country
+    adjustments = req.adjustments
 
-    country_code = country_raw.strip().upper()[:2]
-    if len(country_code) != 2 or not country_code.isalpha():
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "BAD_INPUT",
-                "message": f"'country' must be a 2-letter ISO code. Got: '{country_raw}'.",
-            },
-        )
-
-    print(f"[scenario] country_code={country_code}")
-
-    if country_code not in EU27_SET:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": "COUNTRY_NOT_FOUND",
-                "message": f"Country '{country_code}' is not in the EU-27 dataset.",
-                "country": country_code,
-            },
-        )
-
-    # --- Extract and validate adjustments ---
-    adjustments_raw = body.get("adjustments", {})
-    if not isinstance(adjustments_raw, dict):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "BAD_INPUT",
-                "message": "Field 'adjustments' must be an object (or omitted for no adjustments).",
-            },
-        )
-
-    adjustments: dict[str, float] = {}
-    unknown_keys: list[str] = []
-
-    for key, val in adjustments_raw.items():
-        if key not in VALID_CANONICAL_KEYS:
-            unknown_keys.append(key)
-            continue
-
-        try:
-            fval = float(val)
-        except (TypeError, ValueError):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error": "BAD_INPUT",
-                    "message": f"Adjustment value for '{key}' must be numeric. Got: {val!r}.",
-                },
-            )
-
-        if _math.isnan(fval) or _math.isinf(fval):
-            fval = 0.0
-
-        # Clamp to [-MAX_ADJUSTMENT, +MAX_ADJUSTMENT]
-        fval = max(-MAX_ADJUSTMENT, min(MAX_ADJUSTMENT, fval))
-        adjustments[key] = fval
-
-    if unknown_keys:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "BAD_INPUT",
-                "message": f"Unknown axis keys: {unknown_keys}. "
-                           f"Valid keys: {sorted(VALID_CANONICAL_KEYS)}",
-            },
-        )
-
-    print(f"[scenario] validated adjustments={adjustments}")
-
-    # --- Load baseline data (SAME data source as GET /isi) ---
+    # --- Step 2: Load baseline data (SAME data source as GET /isi) ---
     isi_data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if isi_data is None:
         logger.error(json.dumps({
@@ -789,8 +772,8 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
         return JSONResponse(
             status_code=500,
             content={
-                "error": "SIMULATION_COMPUTATION_FAILED",
-                "message": "Internal simulation error.",
+                "error": "INTERNAL_ERROR",
+                "message": "Scenario computation failed.",
             },
         )
 
@@ -803,16 +786,14 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
         return JSONResponse(
             status_code=500,
             content={
-                "error": "SIMULATION_COMPUTATION_FAILED",
-                "message": "Internal simulation error.",
+                "error": "INTERNAL_ERROR",
+                "message": "Scenario computation failed.",
             },
         )
 
-    print(f"[scenario] baselines loaded, {len(all_baselines)} countries")
-
-    # --- Compute simulation ---
+    # --- Step 3: Run simulation (returns Pydantic ScenarioResponse) ---
     try:
-        result = simulate(
+        result: ScenarioResponse = simulate(
             country_code=country_code,
             adjustments=adjustments,
             all_baselines=all_baselines,
@@ -843,47 +824,17 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
         return JSONResponse(
             status_code=500,
             content={
-                "error": "SIMULATION_COMPUTATION_FAILED",
-                "message": "Internal simulation error.",
+                "error": "INTERNAL_ERROR",
+                "message": "Scenario computation failed.",
             },
         )
 
-    print(f"[scenario] result={result}")
-
-    # --- Belt-and-suspenders output sanitization ---
+    # --- Step 4: Serialize through Pydantic (guarantees contract) ---
     try:
-        bc = float(result["baseline_composite"])
-        sc = float(result["simulated_composite"])
-        br = int(result["baseline_rank"])
-        sr = int(result["simulated_rank"])
-        bcl = str(result["baseline_classification"])
-        scl = str(result["simulated_classification"])
-        ar = result["axis_results"]
-        rc = str(result["country"])
-
-        for label, val in [("baseline_composite", bc), ("simulated_composite", sc)]:
-            if _math.isnan(val) or _math.isinf(val):
-                raise ValueError(f"{label} is NaN/Inf")
-            if not (0.0 <= val <= 1.0):
-                raise ValueError(f"{label} {val} out of [0,1]")
-
-        for label, val in [("baseline_rank", br), ("simulated_rank", sr)]:
-            if not isinstance(val, int) or val < 1:
-                raise ValueError(f"{label} {val} is not a positive integer")
-
-        if not isinstance(ar, dict) or len(ar) != 6:
-            raise ValueError(f"axis_results has {len(ar)} entries, expected 6")
-
-        for ckey in CANONICAL_AXIS_KEYS:
-            entry = ar[ckey]
-            for field in ("baseline", "simulated", "delta"):
-                v = float(entry[field])
-                if _math.isnan(v) or _math.isinf(v):
-                    raise ValueError(f"axis_results['{ckey}']['{field}'] is NaN/Inf")
-
+        response_body = result.model_dump(mode="json")
     except Exception as exc:
         logger.error(json.dumps({
-            "event": "scenario_output_sanitization_failed",
+            "event": "scenario_serialization_failed",
             "request_id": request_id,
             "error_type": type(exc).__name__,
             "error": str(exc),
@@ -891,37 +842,18 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
         return JSONResponse(
             status_code=500,
             content={
-                "error": "SIMULATION_COMPUTATION_FAILED",
-                "message": "Internal simulation error.",
+                "error": "INTERNAL_ERROR",
+                "message": "Scenario computation failed.",
             },
         )
-
-    # --- v0.5 response contract ---
-    response_body = {
-        "country": rc,
-        "baseline_composite": bc,
-        "simulated_composite": sc,
-        "baseline_rank": br,
-        "simulated_rank": sr,
-        "baseline_classification": bcl,
-        "simulated_classification": scl,
-        "axis_results": {
-            ckey: {
-                "baseline": float(ar[ckey]["baseline"]),
-                "simulated": float(ar[ckey]["simulated"]),
-                "delta": float(ar[ckey]["delta"]),
-            }
-            for ckey in CANONICAL_AXIS_KEYS
-        },
-    }
 
     logger.info(json.dumps({
         "event": "scenario_success",
         "request_id": request_id,
-        "country": rc,
-        "baseline_composite": bc,
-        "simulated_composite": sc,
-        "simulated_rank": sr,
+        "country": country_code,
+        "baseline_composite": response_body["baseline"]["composite"],
+        "simulated_composite": response_body["simulated"]["composite"],
+        "simulated_rank": response_body["simulated"]["rank"],
     }))
 
     return JSONResponse(status_code=200, content=response_body)

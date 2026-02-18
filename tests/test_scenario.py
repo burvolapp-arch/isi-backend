@@ -1,17 +1,17 @@
 """
-tests/test_scenario.py — Unit tests for ISI scenario simulation engine (v0.5).
+tests/test_scenario.py — Unit tests for ISI scenario simulation engine (scenario-v1).
 
-Tests the pure computation module (backend.scenario) directly.
+Tests the pure computation module (backend.scenario) directly,
+AND the Pydantic request/response models for contract enforcement.
 
-v0.5 changes:
-- Input fields: country, adjustments
-- Adjustment keys: long-form canonical snake_case keys
+scenario-v1 contract:
+- Input:  ScenarioRequest  {"country": "SE", "adjustments": {...}}
+- Output: ScenarioResponse {country, baseline, simulated, delta, meta}
 - Computation: multiplicative — simulated = clamp(baseline * (1 + adj), 0, 1)
-- Response includes 'country' field
-- No Pydantic ScenarioRequest model — validation in API handler
-- No tolerance for unknown keys — strict validation
+- Pydantic validation on both request AND response
+- All 6 axis keys present in every response block, always
 
-Requires: pytest
+Requires: pytest, pydantic
 """
 
 from __future__ import annotations
@@ -19,13 +19,18 @@ from __future__ import annotations
 import math
 
 import pytest
+from pydantic import ValidationError
 
 from backend.scenario import (
     CANONICAL_AXIS_KEYS,
     CANONICAL_TO_ISI_KEY,
     ISI_AXIS_KEYS,
     ISI_KEY_TO_CANONICAL,
+    MAX_ADJUSTMENT,
+    SCENARIO_VERSION,
     VALID_CANONICAL_KEYS,
+    ScenarioRequest,
+    ScenarioResponse,
     classify,
     clamp,
     compute_composite,
@@ -139,6 +144,75 @@ class TestRegistryConsistency:
 
 
 # ---------------------------------------------------------------------------
+# Pydantic model validation tests — ScenarioRequest
+# ---------------------------------------------------------------------------
+
+class TestScenarioRequest:
+    def test_valid_minimal(self):
+        """Country only, no adjustments."""
+        req = ScenarioRequest(country="SE")
+        assert req.country == "SE"
+        assert req.adjustments == {}
+
+    def test_valid_with_adjustments(self):
+        req = ScenarioRequest(
+            country="SE",
+            adjustments={K_DEF: 0.10, K_ENE: -0.15},
+        )
+        assert req.country == "SE"
+        assert req.adjustments[K_DEF] == 0.10
+        assert req.adjustments[K_ENE] == -0.15
+
+    def test_lowercase_country_normalised(self):
+        req = ScenarioRequest(country="se")
+        assert req.country == "SE"
+
+    def test_invalid_country_not_eu27(self):
+        with pytest.raises(ValidationError):
+            ScenarioRequest(country="US")
+
+    def test_invalid_country_too_short(self):
+        with pytest.raises(ValidationError):
+            ScenarioRequest(country="S")
+
+    def test_invalid_country_too_long(self):
+        with pytest.raises(ValidationError):
+            ScenarioRequest(country="SWE")
+
+    def test_missing_country(self):
+        with pytest.raises(ValidationError):
+            ScenarioRequest()  # type: ignore[call-arg]
+
+    def test_unknown_axis_key_rejected(self):
+        with pytest.raises(ValidationError, match="Unknown axis key"):
+            ScenarioRequest(country="SE", adjustments={"bogus_key": 0.05})
+
+    def test_out_of_range_positive(self):
+        with pytest.raises(ValidationError, match="must be in"):
+            ScenarioRequest(country="SE", adjustments={K_DEF: 0.50})
+
+    def test_out_of_range_negative(self):
+        with pytest.raises(ValidationError, match="must be in"):
+            ScenarioRequest(country="SE", adjustments={K_DEF: -0.50})
+
+    def test_nan_rejected(self):
+        with pytest.raises(ValidationError, match="finite"):
+            ScenarioRequest(country="SE", adjustments={K_DEF: float("nan")})
+
+    def test_inf_rejected(self):
+        with pytest.raises(ValidationError, match="finite"):
+            ScenarioRequest(country="SE", adjustments={K_DEF: float("inf")})
+
+    def test_boundary_values_accepted(self):
+        req = ScenarioRequest(
+            country="SE",
+            adjustments={K_DEF: 0.20, K_ENE: -0.20},
+        )
+        assert req.adjustments[K_DEF] == 0.20
+        assert req.adjustments[K_ENE] == -0.20
+
+
+# ---------------------------------------------------------------------------
 # Pure function tests
 # ---------------------------------------------------------------------------
 
@@ -216,34 +290,59 @@ class TestComputeRank:
 
 
 # ---------------------------------------------------------------------------
-# Scenario simulation integration tests
+# Scenario simulation integration tests — scenario-v1 response shape
 # ---------------------------------------------------------------------------
 
 class TestSimulate:
-    def test_response_contract_shape(self, all_baselines):
-        """Response has exact v0.5 contract keys."""
+    def test_returns_scenario_response(self, all_baselines):
+        """simulate() returns a ScenarioResponse Pydantic model."""
         result = simulate(
             country_code="SE",
             adjustments={},
             all_baselines=all_baselines,
         )
+        assert isinstance(result, ScenarioResponse)
 
-        expected_keys = {
-            "country",
-            "baseline_composite", "simulated_composite",
-            "baseline_rank", "simulated_rank",
-            "baseline_classification", "simulated_classification",
-            "axis_results",
-        }
-        assert set(result.keys()) == expected_keys
-        assert result["country"] == "SE"
+    def test_response_contract_shape(self, all_baselines):
+        """Response has exact scenario-v1 contract fields."""
+        result = simulate(
+            country_code="SE",
+            adjustments={},
+            all_baselines=all_baselines,
+        )
+        d = result.model_dump()
+        assert set(d.keys()) == {"country", "baseline", "simulated", "delta", "meta"}
+        assert result.country == "SE"
 
-        # axis_results has all 6 canonical keys
-        ar = result["axis_results"]
-        assert isinstance(ar, dict)
-        assert set(ar.keys()) == VALID_CANONICAL_KEYS
-        for ckey in VALID_CANONICAL_KEYS:
-            assert set(ar[ckey].keys()) == {"baseline", "simulated", "delta"}
+        # baseline block
+        assert set(d["baseline"].keys()) == {"composite", "rank", "classification", "axes"}
+        assert set(d["baseline"]["axes"].keys()) == set(CANONICAL_AXIS_KEYS)
+
+        # simulated block
+        assert set(d["simulated"].keys()) == {"composite", "rank", "classification", "axes"}
+        assert set(d["simulated"]["axes"].keys()) == set(CANONICAL_AXIS_KEYS)
+
+        # delta block
+        assert set(d["delta"].keys()) == {"composite", "rank", "axes"}
+        assert set(d["delta"]["axes"].keys()) == set(CANONICAL_AXIS_KEYS)
+
+        # meta block
+        assert d["meta"]["version"] == SCENARIO_VERSION
+        assert d["meta"]["bounds"] == {"min": -0.2, "max": 0.2}
+        assert "timestamp" in d["meta"]
+
+    def test_all_six_axes_always_present(self, all_baselines):
+        """baseline.axes and simulated.axes MUST include ALL 6 keys."""
+        result = simulate(
+            country_code="SE",
+            adjustments={K_DEF: 0.10},
+            all_baselines=all_baselines,
+        )
+        for ckey in CANONICAL_AXIS_KEYS:
+            bval = getattr(result.baseline.axes, ckey)
+            sval = getattr(result.simulated.axes, ckey)
+            assert not math.isnan(bval) and not math.isinf(bval)
+            assert not math.isnan(sval) and not math.isinf(sval)
 
     def test_defense_plus_010_multiplicative(self, all_baselines):
         """SE defense baseline=0.30, adj=+0.10 → simulated=0.30*(1+0.10)=0.33."""
@@ -253,18 +352,13 @@ class TestSimulate:
             all_baselines=all_baselines,
         )
 
-        # Composites bounded
-        assert 0.0 <= result["baseline_composite"] <= 1.0
-        assert 0.0 <= result["simulated_composite"] <= 1.0
+        assert 0.0 <= result.baseline.composite <= 1.0
+        assert 0.0 <= result.simulated.composite <= 1.0
+        assert result.simulated.composite > result.baseline.composite
 
-        # Simulated > baseline (defense increased)
-        assert result["simulated_composite"] > result["baseline_composite"]
-
-        # Defense axis: baseline=0.30, simulated=0.30*(1+0.10)=0.33
-        def_axis = result["axis_results"][K_DEF]
-        assert def_axis["baseline"] == pytest.approx(0.30)
-        assert def_axis["simulated"] == pytest.approx(0.33)
-        assert def_axis["delta"] == pytest.approx(0.03)
+        assert getattr(result.baseline.axes, K_DEF) == pytest.approx(0.30)
+        assert getattr(result.simulated.axes, K_DEF) == pytest.approx(0.33)
+        assert getattr(result.delta.axes, K_DEF) == pytest.approx(0.03)
 
     def test_no_adjustments_baseline_equals_simulated(self, all_baselines):
         """Empty adjustments: baseline == simulated for every field."""
@@ -274,15 +368,17 @@ class TestSimulate:
             all_baselines=all_baselines,
         )
 
-        assert result["baseline_composite"] == result["simulated_composite"]
-        assert result["baseline_rank"] == result["simulated_rank"]
-        assert result["baseline_classification"] == result["simulated_classification"]
+        assert result.baseline.composite == result.simulated.composite
+        assert result.baseline.rank == result.simulated.rank
+        assert result.baseline.classification == result.simulated.classification
+        assert result.delta.composite == pytest.approx(0.0)
+        assert result.delta.rank == 0
 
-        for ckey in VALID_CANONICAL_KEYS:
-            assert result["axis_results"][ckey]["delta"] == pytest.approx(0.0)
+        for ckey in CANONICAL_AXIS_KEYS:
+            assert getattr(result.delta.axes, ckey) == pytest.approx(0.0)
             assert (
-                result["axis_results"][ckey]["baseline"]
-                == result["axis_results"][ckey]["simulated"]
+                getattr(result.baseline.axes, ckey)
+                == getattr(result.simulated.axes, ckey)
             )
 
     def test_multiplicative_model(self, all_baselines):
@@ -293,28 +389,35 @@ class TestSimulate:
             all_baselines=all_baselines,
         )
 
-        # Financial: 0.15 * (1 + 0.20) = 0.18
-        assert result["axis_results"][K_FIN]["simulated"] == pytest.approx(0.18)
+        assert getattr(result.simulated.axes, K_FIN) == pytest.approx(0.18)
+        assert getattr(result.simulated.axes, K_ENE) == pytest.approx(0.085)
 
-        # Energy: 0.10 * (1 - 0.15) = 0.085
-        assert result["axis_results"][K_ENE]["simulated"] == pytest.approx(0.085)
+    def test_delta_is_simulated_minus_baseline(self, all_baselines):
+        """delta.composite = simulated.composite - baseline.composite, etc."""
+        result = simulate(
+            country_code="SE",
+            adjustments={K_DEF: 0.10, K_ENE: -0.05},
+            all_baselines=all_baselines,
+        )
+        assert result.delta.composite == pytest.approx(
+            result.simulated.composite - result.baseline.composite
+        )
+        assert result.delta.rank == result.simulated.rank - result.baseline.rank
+
+        for ckey in CANONICAL_AXIS_KEYS:
+            assert getattr(result.delta.axes, ckey) == pytest.approx(
+                getattr(result.simulated.axes, ckey) - getattr(result.baseline.axes, ckey)
+            )
 
     def test_clamp_at_zero(self, all_baselines):
-        """Large negative adjustment clamps axis at 0.0."""
-        # Energy baseline = 0.10, adj = -0.20
-        # simulated = 0.10 * (1 - 0.20) = 0.08 (not clamped in this case)
-        # Use a value where clamping occurs: need baseline * (1 + adj) < 0
-        # That requires adj < -1.0, which is outside [-0.20, +0.20] range
-        # So with max adj, minimum is baseline * 0.80 — never reaches 0.
-        # Test with very low baseline instead.
+        """Large negative adjustment: simulated stays >= 0."""
         result = simulate(
             country_code="SE",
             adjustments={K_ENE: -0.20},
             all_baselines=all_baselines,
         )
-        # Energy: 0.10 * (1 - 0.20) = 0.08 — still positive
-        assert result["axis_results"][K_ENE]["simulated"] == pytest.approx(0.08)
-        assert result["axis_results"][K_ENE]["simulated"] >= 0.0
+        assert getattr(result.simulated.axes, K_ENE) == pytest.approx(0.08)
+        assert getattr(result.simulated.axes, K_ENE) >= 0.0
 
     def test_missing_country_raises(self, all_baselines):
         """Country not in baselines → ValueError."""
@@ -329,23 +432,15 @@ class TestSimulate:
         """Multiple axes adjusted simultaneously."""
         result = simulate(
             country_code="SE",
-            adjustments={
-                K_DEF: 0.10,
-                K_ENE: -0.05,
-                K_FIN: 0.05,
-            },
+            adjustments={K_DEF: 0.10, K_ENE: -0.05, K_FIN: 0.05},
             all_baselines=all_baselines,
         )
-        ar = result["axis_results"]
-        # Defense: 0.30 * 1.10 = 0.33
-        assert ar[K_DEF]["simulated"] == pytest.approx(0.33)
-        # Energy: 0.10 * 0.95 = 0.095
-        assert ar[K_ENE]["simulated"] == pytest.approx(0.095)
-        # Financial: 0.15 * 1.05 = 0.1575
-        assert ar[K_FIN]["simulated"] == pytest.approx(0.1575)
+        assert getattr(result.simulated.axes, K_DEF) == pytest.approx(0.33)
+        assert getattr(result.simulated.axes, K_ENE) == pytest.approx(0.095)
+        assert getattr(result.simulated.axes, K_FIN) == pytest.approx(0.1575)
 
     def test_idempotent(self, all_baselines):
-        """Same inputs always produce identical outputs."""
+        """Same inputs always produce identical outputs (except timestamp)."""
         kwargs = dict(
             country_code="SE",
             adjustments={K_DEF: 0.10},
@@ -353,7 +448,11 @@ class TestSimulate:
         )
         r1 = simulate(**kwargs)
         r2 = simulate(**kwargs)
-        assert r1 == r2
+        d1 = r1.model_dump()
+        d2 = r2.model_dump()
+        d1["meta"].pop("timestamp")
+        d2["meta"].pop("timestamp")
+        assert d1 == d2
 
     def test_no_null_fields(self, all_baselines):
         """No field in the response may be None."""
@@ -362,16 +461,17 @@ class TestSimulate:
             adjustments={},
             all_baselines=all_baselines,
         )
-        assert result["country"] is not None
-        assert result["baseline_composite"] is not None
-        assert result["simulated_composite"] is not None
-        assert result["baseline_rank"] is not None
-        assert result["simulated_rank"] is not None
-        assert result["baseline_classification"] is not None
-        assert result["simulated_classification"] is not None
-        for ckey in VALID_CANONICAL_KEYS:
-            for field in ("baseline", "simulated", "delta"):
-                assert result["axis_results"][ckey][field] is not None
+        assert result.country is not None
+        assert result.baseline.composite is not None
+        assert result.simulated.composite is not None
+        assert result.baseline.rank is not None
+        assert result.simulated.rank is not None
+        assert result.baseline.classification is not None
+        assert result.simulated.classification is not None
+        for ckey in CANONICAL_AXIS_KEYS:
+            assert getattr(result.baseline.axes, ckey) is not None
+            assert getattr(result.simulated.axes, ckey) is not None
+            assert getattr(result.delta.axes, ckey) is not None
 
     def test_ranks_valid(self, all_baselines):
         """Ranks are positive integers within bounds."""
@@ -380,10 +480,21 @@ class TestSimulate:
             adjustments={K_DEF: 0.20},
             all_baselines=all_baselines,
         )
-        assert isinstance(result["baseline_rank"], int)
-        assert isinstance(result["simulated_rank"], int)
-        assert 1 <= result["baseline_rank"] <= 27
-        assert 1 <= result["simulated_rank"] <= 27
+        assert isinstance(result.baseline.rank, int)
+        assert isinstance(result.simulated.rank, int)
+        assert 1 <= result.baseline.rank <= 27
+        assert 1 <= result.simulated.rank <= 27
+
+    def test_classifications_valid(self, all_baselines):
+        """Classifications are from the known label set."""
+        from backend.scenario import VALID_CLASSIFICATIONS
+        result = simulate(
+            country_code="SE",
+            adjustments={K_DEF: 0.20},
+            all_baselines=all_baselines,
+        )
+        assert result.baseline.classification in VALID_CLASSIFICATIONS
+        assert result.simulated.classification in VALID_CLASSIFICATIONS
 
     def test_country_in_response(self, all_baselines):
         """Response includes the country field."""
@@ -392,7 +503,19 @@ class TestSimulate:
             adjustments={},
             all_baselines=all_baselines,
         )
-        assert result["country"] == "SE"
+        assert result.country == "SE"
+
+    def test_meta_block(self, all_baselines):
+        """Meta block has version, timestamp, bounds."""
+        result = simulate(
+            country_code="SE",
+            adjustments={},
+            all_baselines=all_baselines,
+        )
+        assert result.meta.version == SCENARIO_VERSION
+        assert result.meta.bounds == {"min": -MAX_ADJUSTMENT, "max": MAX_ADJUSTMENT}
+        assert isinstance(result.meta.timestamp, str)
+        assert len(result.meta.timestamp) > 0
 
     def test_all_countries_work(self, all_baselines):
         """Simulation works for every EU-27 country."""
@@ -402,5 +525,21 @@ class TestSimulate:
                 adjustments={},
                 all_baselines=all_baselines,
             )
-            assert result["country"] == code
-            assert 0.0 <= result["baseline_composite"] <= 1.0
+            assert result.country == code
+            assert 0.0 <= result.baseline.composite <= 1.0
+            assert isinstance(result, ScenarioResponse)
+
+    def test_model_dump_serialisable(self, all_baselines):
+        """model_dump(mode='json') produces a JSON-serialisable dict."""
+        import json as _json
+        result = simulate(
+            country_code="SE",
+            adjustments={K_DEF: 0.10},
+            all_baselines=all_baselines,
+        )
+        body = result.model_dump(mode="json")
+        serialised = _json.dumps(body)
+        assert isinstance(serialised, str)
+        parsed = _json.loads(serialised)
+        assert parsed["country"] == "SE"
+        assert set(parsed["baseline"]["axes"].keys()) == set(CANONICAL_AXIS_KEYS)
