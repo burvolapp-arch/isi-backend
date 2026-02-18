@@ -1,10 +1,10 @@
 """
-backend.scenario — ISI Scenario Simulation Engine (v0.3)
+backend.scenario — ISI Scenario Simulation Engine (v0.4)
 
 Pure-computation module. Zero I/O. Zero global state. Zero randomness.
 All functions are deterministic, bounded, and idempotent.
 
-Given a country's baseline axis scores and a set of axis shifts,
+Given a country's baseline axis scores and a set of adjustments,
 computes the simulated axis scores, composite, rank, and classification.
 
 The ISI composite is:
@@ -16,39 +16,51 @@ Classification thresholds (frozen):
     >= 0.10  → mildly_concentrated
     <  0.10  → unconcentrated
 
-Request schema (v0.3):
+Request schema (v0.4):
     {
-      "country_code": str,        # 2-letter uppercase ISO
-      "axis_shifts": {             # 0–6 keys, all optional
-          "<slug>": float          # each in [-0.20, +0.20]
+      "country_code": str,        # 2-letter uppercase ISO (EU-27)
+      "adjustments": {             # 0–6 keys, missing → 0.0, out-of-range → clamped
+          "<canonical_axis_key>": float
+      },
+      "meta": {                    # optional, ignored by compute
+          "preset": str | null,
+          "client_version": str | null,
+          "timestamp": str | null
       }
     }
 
-    Accepted field aliases (frontend compat):
-      country_code  OR  countryCode
-      axis_shifts   OR  adjustments
+    Canonical axis keys:
+      financial_external_supplier_concentration
+      energy_external_supplier_concentration
+      technology_semiconductor_external_supplier_concentration
+      defense_external_supplier_concentration
+      critical_inputs_raw_materials_external_supplier_concentration
+      logistics_freight_external_supplier_concentration
 
-Response contract (v0.3):
+Response contract (v0.4):
     {
+      "baseline_composite": float,
       "simulated_composite": float,
+      "baseline_rank": int,
       "simulated_rank": int,
+      "baseline_classification": str,
       "simulated_classification": str,
       "axis_results": {
-          "financial": float,
-          "energy": float,
-          "technology": float,
-          "defense": float,
-          "critical_inputs": float,
-          "logistics": float
-      },
-      "request_id": str
+          "<canonical_axis_key>": {
+              "baseline": float,
+              "simulated": float,
+              "delta": float
+          }
+      }
     }
+
+    No extra nesting. No renaming. No optional nulls. Always deterministic.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -59,26 +71,36 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 NUM_AXES = 6
 
-# Canonical axis slugs in axis-ID order (1–6)
-AXIS_SLUGS: tuple[str, ...] = (
-    "financial",
-    "energy",
-    "technology",
-    "defense",
-    "critical_inputs",
-    "logistics",
+# Canonical axis keys — the long-form names the frontend sends.
+CANONICAL_AXIS_KEYS: tuple[str, ...] = (
+    "financial_external_supplier_concentration",
+    "energy_external_supplier_concentration",
+    "technology_semiconductor_external_supplier_concentration",
+    "defense_external_supplier_concentration",
+    "critical_inputs_raw_materials_external_supplier_concentration",
+    "logistics_freight_external_supplier_concentration",
 )
 
-AXIS_SLUG_SET: frozenset[str] = frozenset(AXIS_SLUGS)
+CANONICAL_AXIS_KEY_SET: frozenset[str] = frozenset(CANONICAL_AXIS_KEYS)
 
-# Maps axis slug → key in isi.json countries[] objects
-AXIS_SLUG_TO_ISI_KEY: dict[str, str] = {
-    "financial": "axis_1_financial",
-    "energy": "axis_2_energy",
-    "technology": "axis_3_technology",
-    "defense": "axis_4_defense",
-    "critical_inputs": "axis_5_critical_inputs",
-    "logistics": "axis_6_logistics",
+# Maps canonical axis key → key in isi.json countries[] objects
+CANONICAL_TO_ISI_KEY: dict[str, str] = {
+    "financial_external_supplier_concentration": "axis_1_financial",
+    "energy_external_supplier_concentration": "axis_2_energy",
+    "technology_semiconductor_external_supplier_concentration": "axis_3_technology",
+    "defense_external_supplier_concentration": "axis_4_defense",
+    "critical_inputs_raw_materials_external_supplier_concentration": "axis_5_critical_inputs",
+    "logistics_freight_external_supplier_concentration": "axis_6_logistics",
+}
+
+# Also accept short slug names from older frontends → map to canonical
+SHORT_SLUG_TO_CANONICAL: dict[str, str] = {
+    "financial": "financial_external_supplier_concentration",
+    "energy": "energy_external_supplier_concentration",
+    "technology": "technology_semiconductor_external_supplier_concentration",
+    "defense": "defense_external_supplier_concentration",
+    "critical_inputs": "critical_inputs_raw_materials_external_supplier_concentration",
+    "logistics": "logistics_freight_external_supplier_concentration",
 }
 
 # Maximum allowed adjustment magnitude per axis
@@ -100,27 +122,35 @@ VALID_CLASSIFICATIONS: frozenset[str] = frozenset({
     "unconcentrated",
 })
 
+# Legacy exports for backwards compat in tests
+AXIS_SLUGS = CANONICAL_AXIS_KEYS
+
 
 # ---------------------------------------------------------------------------
-# Pydantic request model — strict, schema-explicit validation
+# Pydantic request model — tolerant, never-400 validation
 # ---------------------------------------------------------------------------
+
+class ScenarioMeta(BaseModel):
+    """Optional metadata from the frontend. Ignored by compute."""
+    preset: Optional[str] = None
+    client_version: Optional[str] = None
+    timestamp: Optional[str] = None
+
 
 class ScenarioRequest(BaseModel):
-    """Validated scenario simulation request.
+    """Tolerant scenario simulation request.
 
-    Accepts (with aliases for frontend compatibility):
-      - country_code OR countryCode   → 2-letter uppercase ISO
-      - axis_shifts  OR adjustments   → dict of axis_slug → float delta
-      - empty axis_shifts {}          → treated as zero-delta (returns baseline)
-      - extra fields are silently ignored (frontend may send metadata)
+    Design principle: NEVER return 400 for structural reasons.
+    - Missing adjustments keys → filled with 0.0
+    - Out-of-range values → clamped to [-0.20, +0.20]
+    - Unknown keys → silently ignored
+    - Extra top-level fields → silently ignored
+    - Short slugs (financial, energy, ...) → auto-mapped to canonical keys
+    - NaN/Inf values → replaced with 0.0
+    - meta field → optional, passed through
 
-    Rejects (with structured 422):
-      - missing country_code
-      - country_code not exactly 2 uppercase alpha chars
-      - unknown axis slugs in axis_shifts
-      - shift values outside [-0.20, +0.20]
-      - NaN / Inf / None / non-numeric shift values
-      - string-typed shift values (no implicit coercion)
+    Only reject:
+    - Missing country_code entirely (422 — malformed JSON)
     """
 
     model_config = {"extra": "ignore", "populate_by_name": True}
@@ -128,62 +158,70 @@ class ScenarioRequest(BaseModel):
     country_code: str = Field(
         ...,
         alias="countryCode",
-        min_length=2,
-        max_length=2,
         description="2-letter uppercase ISO country code (EU-27)",
     )
-    axis_shifts: Dict[str, float] = Field(
+    adjustments: Dict[str, float] = Field(
         default_factory=dict,
-        alias="adjustments",
-        description="Per-axis shift deltas. Keys must be canonical axis slugs. Values in [-0.20, +0.20].",
+        alias="axis_shifts",
+        description="Per-axis adjustment deltas. Keys are canonical axis keys. Values clamped to [-0.20, +0.20].",
     )
+    meta: Optional[ScenarioMeta] = None
 
     @field_validator("country_code")
     @classmethod
-    def _validate_country_code(cls, v: str) -> str:
+    def _normalize_country_code(cls, v: str) -> str:
         if v is None:
             raise ValueError("country_code must not be null.")
-        v = v.strip().upper()
-        if len(v) != 2 or not v.isalpha():
-            raise ValueError(f"Invalid country code: '{v}'. Must be exactly 2 uppercase ISO alpha characters.")
-        return v
-
-    @field_validator("axis_shifts")
-    @classmethod
-    def _validate_axis_shifts(cls, v: Dict[str, float]) -> Dict[str, float]:
-        if v is None:
-            return {}
-        for slug, shift in v.items():
-            if slug not in AXIS_SLUG_SET:
-                raise ValueError(
-                    f"Unknown axis slug: '{slug}'. "
-                    f"Valid slugs: {sorted(AXIS_SLUG_SET)}"
-                )
-            if shift is None:
-                raise ValueError(f"Shift for '{slug}' must not be null.")
-            if not isinstance(shift, (int, float)):
-                raise ValueError(
-                    f"Shift for '{slug}' must be numeric float, got {type(shift).__name__}. "
-                    f"No implicit coercion from string."
-                )
-            if math.isnan(shift) or math.isinf(shift):
-                raise ValueError(
-                    f"Shift for '{slug}' must be finite "
-                    f"(got {'NaN' if math.isnan(shift) else 'Inf'})."
-                )
-            if shift < -MAX_ADJUSTMENT or shift > MAX_ADJUSTMENT:
-                raise ValueError(
-                    f"Shift for '{slug}' = {shift} is out of range "
-                    f"[{-MAX_ADJUSTMENT}, +{MAX_ADJUSTMENT}]."
-                )
+        v = str(v).strip().upper()
+        if len(v) < 2:
+            raise ValueError(f"country_code too short: '{v}'.")
+        # Take first 2 alpha chars, be tolerant
+        v = v[:2]
+        if not v.isalpha():
+            raise ValueError(f"country_code must be alphabetic: '{v}'.")
         return v
 
     @model_validator(mode="after")
-    def _post_coercion_check(self) -> ScenarioRequest:
-        """Belt-and-suspenders: re-check after Pydantic coercion."""
-        for slug, shift in self.axis_shifts.items():
-            if math.isnan(shift) or math.isinf(shift):
-                raise ValueError(f"Shift for '{slug}' is not finite after coercion.")
+    def _normalize_adjustments(self) -> ScenarioRequest:
+        """Tolerant normalization:
+        - Map short slugs → canonical keys
+        - Ignore unknown keys
+        - Clamp values to [-0.20, +0.20]
+        - Replace NaN/Inf with 0.0
+        - Fill missing canonical keys with 0.0
+        """
+        raw = self.adjustments or {}
+        normalized: Dict[str, float] = {}
+
+        for key, val in raw.items():
+            # Map short slug to canonical if needed
+            canonical = SHORT_SLUG_TO_CANONICAL.get(key, key)
+
+            # Skip unknown keys silently
+            if canonical not in CANONICAL_AXIS_KEY_SET:
+                continue
+
+            # Coerce to float safely
+            try:
+                fval = float(val)
+            except (TypeError, ValueError):
+                fval = 0.0
+
+            # Replace NaN/Inf with 0.0
+            if math.isnan(fval) or math.isinf(fval):
+                fval = 0.0
+
+            # Clamp to [-MAX_ADJUSTMENT, +MAX_ADJUSTMENT]
+            fval = max(-MAX_ADJUSTMENT, min(MAX_ADJUSTMENT, fval))
+
+            normalized[canonical] = fval
+
+        # Fill missing canonical keys with 0.0
+        for key in CANONICAL_AXIS_KEYS:
+            if key not in normalized:
+                normalized[key] = 0.0
+
+        self.adjustments = normalized
         return self
 
 
@@ -216,7 +254,7 @@ def compute_composite(axis_scores: dict[str, float]) -> float:
     All inputs must already be clamped to [0, 1].
     Result is clamped to [0, 1].
     """
-    total = sum(axis_scores[slug] for slug in AXIS_SLUGS)
+    total = sum(axis_scores[key] for key in CANONICAL_AXIS_KEYS)
     return clamp01(total / NUM_AXES)
 
 
@@ -250,9 +288,27 @@ def compute_rank(
     return len(all_baselines)
 
 
+def compute_baseline_rank(
+    country_code: str,
+    all_baselines: list[dict[str, Any]],
+) -> int:
+    """Compute baseline rank for a country from isi.json data."""
+    composites: list[tuple[float, str]] = []
+    for entry in all_baselines:
+        composites.append((entry["isi_composite"], entry["country"]))
+
+    composites.sort(key=lambda x: (-x[0], x[1]))
+
+    for i, (_, code) in enumerate(composites, 1):
+        if code == country_code:
+            return i
+
+    return len(all_baselines)
+
+
 def simulate(
     country_code: str,
-    axis_shifts: dict[str, float],
+    adjustments: dict[str, float],
     all_baselines: list[dict[str, Any]],
     request_id: str,
 ) -> dict[str, Any]:
@@ -260,14 +316,15 @@ def simulate(
 
     Args:
         country_code: ISO-2 country code (uppercase, validated).
-        axis_shifts: {axis_slug: delta} — each in [-0.20, +0.20]. May be empty.
+        adjustments: {canonical_axis_key: delta} — all 6 keys present, clamped.
         all_baselines: The full countries array from isi.json.
-        request_id: UUID from middleware (passed through to response).
+        request_id: UUID from middleware (passed through for tracing).
 
     Returns:
-        Deterministic response dict matching the v0.3 contract:
-        {simulated_composite, simulated_rank, simulated_classification,
-         axis_results, request_id}
+        Deterministic response dict matching the v0.4 contract:
+        {baseline_composite, simulated_composite, baseline_rank, simulated_rank,
+         baseline_classification, simulated_classification,
+         axis_results: {key: {baseline, simulated, delta}}}
 
     Raises:
         ValueError: If country_code not found in baselines.
@@ -285,48 +342,78 @@ def simulate(
 
     # --- Extract baseline axis scores ---
     baseline_axes: dict[str, float] = {}
-    for slug in AXIS_SLUGS:
-        key = AXIS_SLUG_TO_ISI_KEY[slug]
-        raw = baseline_entry.get(key)
+    for canonical_key in CANONICAL_AXIS_KEYS:
+        isi_key = CANONICAL_TO_ISI_KEY[canonical_key]
+        raw = baseline_entry.get(isi_key)
         if raw is None or not isinstance(raw, (int, float)):
-            raise RuntimeError(f"Baseline data corrupt: missing or non-numeric '{key}' for {country_code}.")
-        baseline_axes[slug] = clamp01(float(raw))
+            raise RuntimeError(
+                f"Baseline data corrupt: missing or non-numeric '{isi_key}' for {country_code}."
+            )
+        baseline_axes[canonical_key] = clamp01(float(raw))
 
-    # --- Apply axis_shifts → simulated axes ---
+    # --- Compute baseline composite and rank ---
+    baseline_composite = compute_composite(baseline_axes)
+    baseline_rank = compute_baseline_rank(country_code, all_baselines)
+    baseline_classification = classify(baseline_composite)
+
+    # --- Apply adjustments → simulated axes ---
     simulated_axes: dict[str, float] = {}
-    for slug in AXIS_SLUGS:
-        shift = axis_shifts.get(slug, 0.0)
-        simulated_axes[slug] = clamp01(baseline_axes[slug] + shift)
+    for canonical_key in CANONICAL_AXIS_KEYS:
+        delta = adjustments.get(canonical_key, 0.0)
+        simulated_axes[canonical_key] = clamp01(baseline_axes[canonical_key] + delta)
 
     # --- Compute simulated composite ---
     simulated_composite = compute_composite(simulated_axes)
     simulated_rank = compute_rank(country_code, simulated_composite, all_baselines)
     simulated_classification = classify(simulated_composite)
 
-    # --- Bound output sanitization ---
-    for slug in AXIS_SLUGS:
-        simulated_axes[slug] = clamp01(simulated_axes[slug])
+    # --- Output sanitization ---
+    baseline_composite = clamp01(baseline_composite)
     simulated_composite = clamp01(simulated_composite)
+    baseline_rank = int(baseline_rank)
     simulated_rank = int(simulated_rank)
 
-    if simulated_classification not in VALID_CLASSIFICATIONS:
-        raise RuntimeError(
-            f"Output sanitization failed: classification '{simulated_classification}' "
-            f"is not in {sorted(VALID_CLASSIFICATIONS)}."
-        )
-    if math.isnan(simulated_composite) or math.isinf(simulated_composite):
-        raise RuntimeError("Output sanitization failed: simulated_composite is NaN or Inf.")
-    for slug, val in simulated_axes.items():
-        if math.isnan(val) or math.isinf(val):
-            raise RuntimeError(f"Output sanitization failed: axis '{slug}' is NaN or Inf.")
+    for label, comp in [("baseline", baseline_composite), ("simulated", simulated_composite)]:
+        if math.isnan(comp) or math.isinf(comp):
+            raise RuntimeError(f"Output sanitization failed: {label}_composite is NaN or Inf.")
 
-    # --- Deterministic response contract (v0.3) ---
+    for cls_label, cls_val in [
+        ("baseline", baseline_classification),
+        ("simulated", simulated_classification),
+    ]:
+        if cls_val not in VALID_CLASSIFICATIONS:
+            raise RuntimeError(
+                f"Output sanitization failed: {cls_label}_classification '{cls_val}' "
+                f"is not in {sorted(VALID_CLASSIFICATIONS)}."
+            )
+
+    for canonical_key in CANONICAL_AXIS_KEYS:
+        for label, axes_dict in [("baseline", baseline_axes), ("simulated", simulated_axes)]:
+            val = axes_dict[canonical_key]
+            if math.isnan(val) or math.isinf(val):
+                raise RuntimeError(
+                    f"Output sanitization failed: {label} axis '{canonical_key}' is NaN or Inf."
+                )
+
+    # --- Build axis_results with baseline/simulated/delta per axis ---
+    axis_results: dict[str, dict[str, float]] = {}
+    for canonical_key in CANONICAL_AXIS_KEYS:
+        b = round(baseline_axes[canonical_key], 10)
+        s = round(simulated_axes[canonical_key], 10)
+        d = round(s - b, 10)
+        axis_results[canonical_key] = {
+            "baseline": b,
+            "simulated": s,
+            "delta": d,
+        }
+
+    # --- Deterministic response contract (v0.4) ---
     return {
+        "baseline_composite": round(baseline_composite, 10),
         "simulated_composite": round(simulated_composite, 10),
+        "baseline_rank": baseline_rank,
         "simulated_rank": simulated_rank,
+        "baseline_classification": baseline_classification,
         "simulated_classification": simulated_classification,
-        "axis_results": {
-            slug: round(simulated_axes[slug], 10) for slug in AXIS_SLUGS
-        },
-        "request_id": request_id,
+        "axis_results": axis_results,
     }

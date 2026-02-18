@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-isi_api_v01.py — ISI API Server (hardened, v0.3)
+isi_api_v01.py — ISI API Server (hardened, v0.4)
 
 Serves pre-materialized JSON artifacts produced by
 export_isi_backend_v01.py and a deterministic scenario simulation
@@ -80,7 +80,12 @@ from backend.security import (  # noqa: I001
     verify_manifest,
 )
 
-from backend.scenario import ScenarioRequest, simulate  # noqa: I001, E402
+from backend.scenario import (  # noqa: I001, E402
+    CANONICAL_AXIS_KEYS,
+    VALID_CLASSIFICATIONS,
+    ScenarioRequest,
+    simulate,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +473,7 @@ async def root(request: Request) -> dict:
 async def health(request: Request) -> JSONResponse:
     """Liveness probe — primitive, isolated, zero dependencies.
 
-    ALWAYS returns HTTP 200 with {"status": "ok", "version": "v0.3"}.
+    ALWAYS returns HTTP 200 with {"status": "ok", "version": "v0.4"}.
     No file I/O, no state reads, no cache access, no computation.
     Survives any internal failure. Safe for Railway healthcheck probing.
 
@@ -476,7 +481,7 @@ async def health(request: Request) -> JSONResponse:
     """
     return JSONResponse(
         status_code=200,
-        content={"status": "ok", "version": "v0.3"},
+        content={"status": "ok", "version": "v0.4"},
     )
 
 
@@ -623,18 +628,19 @@ async def get_isi(request: Request) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# POST /scenario — What-if scenario simulation (v0.3)
+# POST /scenario — What-if scenario simulation (v0.4)
 #
-# Accepts a country code and per-axis shifts [-0.20, +0.20].
-# Returns: {simulated_composite, simulated_rank, simulated_classification,
-#           axis_results: {slug: float}, request_id}.
+# Tolerant input: missing keys → 0.0, out-of-range → clamped, unknown → ignored.
+# Returns: {baseline_composite, simulated_composite, baseline_rank,
+#           simulated_rank, baseline_classification, simulated_classification,
+#           axis_results: {key: {baseline, simulated, delta}}}.
 # Deterministic, bounded, validated, idempotent.
 # No global state mutation. No caching. No randomness.
 #
-# Error contract:
-#   422 → VALIDATION_ERROR (Pydantic / schema failures, with received_payload)
-#   400 → INVALID_SCENARIO_INPUT (EU-27 scope check)
-#   500 → SIMULATION_COMPUTATION_FAILED (output sanitization / internal)
+# Error contract (NEVER 400 for structural reasons):
+#   404 → country_code not found in dataset
+#   422 → malformed JSON (FastAPI/Pydantic only — missing country_code)
+#   500 → actual computation failure
 #   405 → GET on /scenario (method not allowed)
 # ---------------------------------------------------------------------------
 
@@ -651,43 +657,41 @@ async def scenario_get(request: Request) -> JSONResponse:
 @app.post("/scenario")
 @limiter.limit("60/minute")
 async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
-    """Deterministic what-if scenario simulation (v0.3).
+    """Deterministic what-if scenario simulation (v0.4).
 
-    Input validation: 422 (FastAPI + Pydantic auto-validates `body`).
-    EU-27 scope check: 400.
-    Computation: simulate() → deterministic, bounded, idempotent.
-    Output sanitization: belt-and-suspenders post-compute check.
-    Response: {simulated_composite, simulated_rank, simulated_classification,
-               axis_results, request_id}.
+    Tolerant: missing keys → 0.0, out-of-range → clamped, unknown → ignored.
+    Only rejects: missing country_code (422), invalid country (404), compute crash (500).
+    Response: {baseline_composite, simulated_composite, baseline_rank, simulated_rank,
+               baseline_classification, simulated_classification, axis_results}.
 
     NOTE: `body: ScenarioRequest` uses FastAPI native body injection.
-    This avoids manually calling `await request.json()` which is known to
-    deadlock under BaseHTTPMiddleware stacking with Gunicorn/Uvicorn workers.
+    This avoids manually calling `await request.json()` which deadlocks
+    under BaseHTTPMiddleware stacking with Gunicorn/Uvicorn workers.
     """
     request_id: str = getattr(request.state, "request_id", "unknown")
 
-    # Log raw validated input
+    # Log received payload for debugging (24h retention)
     logger.info(json.dumps({
         "event": "scenario_request",
         "request_id": request_id,
         "country_code": body.country_code,
-        "axis_shifts": body.axis_shifts,
+        "adjustments": body.adjustments,
+        "meta": body.meta.model_dump() if body.meta else None,
     }))
 
-    # Validate country is in EU-27 scope
+    # Validate country exists in dataset → 404 (not 400)
     if body.country_code not in EU27_SET:
         logger.warning(json.dumps({
-            "event": "scenario_country_not_eu27",
+            "event": "scenario_country_not_found",
             "request_id": request_id,
             "country_code": body.country_code,
         }))
         return JSONResponse(
-            status_code=400,
+            status_code=404,
             content={
-                "error": "INVALID_SCENARIO_INPUT",
-                "message": f"Country '{body.country_code}' is not in EU-27 scope.",
-                "details": {"country_code": body.country_code},
-                "request_id": request_id,
+                "error": "COUNTRY_NOT_FOUND",
+                "message": f"Country '{body.country_code}' is not in the EU-27 dataset.",
+                "country_code": body.country_code,
             },
         )
 
@@ -703,7 +707,6 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
-                "request_id": request_id,
             },
         )
 
@@ -718,7 +721,6 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
-                "request_id": request_id,
             },
         )
 
@@ -726,16 +728,31 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
     try:
         result = simulate(
             country_code=body.country_code,
-            axis_shifts=body.axis_shifts,
+            adjustments=body.adjustments,
             all_baselines=all_baselines,
             request_id=request_id,
+        )
+    except ValueError as exc:
+        # Country not found in baseline data → 404
+        logger.warning(json.dumps({
+            "event": "scenario_country_not_in_baseline",
+            "request_id": request_id,
+            "country_code": body.country_code,
+            "error": str(exc),
+        }))
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "COUNTRY_NOT_FOUND",
+                "message": str(exc),
+                "country_code": body.country_code,
+            },
         )
     except Exception as exc:
         logger.error(json.dumps({
             "event": "scenario_computation_failed",
             "request_id": request_id,
             "country_code": body.country_code,
-            "axis_shifts": body.axis_shifts,
             "error_type": type(exc).__name__,
             "error": str(exc),
         }))
@@ -744,37 +761,44 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
-                "request_id": request_id,
             },
         )
 
     # Belt-and-suspenders output sanitization
     try:
         import math as _math
-        from backend.scenario import VALID_CLASSIFICATIONS as _VC, AXIS_SLUGS as _SLUGS
 
+        bc = float(result["baseline_composite"])
         sc = float(result["simulated_composite"])
+        br = int(result["baseline_rank"])
         sr = int(result["simulated_rank"])
+        bcl = str(result["baseline_classification"])
         scl = str(result["simulated_classification"])
         ar = result["axis_results"]
-        rid = str(result["request_id"])
 
-        if _math.isnan(sc) or _math.isinf(sc):
-            raise ValueError("simulated_composite is NaN/Inf")
-        if not (0.0 <= sc <= 1.0):
-            raise ValueError(f"simulated_composite {sc} out of [0,1]")
-        if not isinstance(sr, int) or sr < 1:
-            raise ValueError(f"simulated_rank {sr} is not a positive integer")
-        if scl not in _VC:
-            raise ValueError(f"simulated_classification '{scl}' invalid")
+        for label, val in [("baseline_composite", bc), ("simulated_composite", sc)]:
+            if _math.isnan(val) or _math.isinf(val):
+                raise ValueError(f"{label} is NaN/Inf")
+            if not (0.0 <= val <= 1.0):
+                raise ValueError(f"{label} {val} out of [0,1]")
+
+        for label, val in [("baseline_rank", br), ("simulated_rank", sr)]:
+            if not isinstance(val, int) or val < 1:
+                raise ValueError(f"{label} {val} is not a positive integer")
+
+        for label, val in [("baseline_classification", bcl), ("simulated_classification", scl)]:
+            if val not in VALID_CLASSIFICATIONS:
+                raise ValueError(f"{label} '{val}' invalid")
+
         if not isinstance(ar, dict) or len(ar) != 6:
             raise ValueError(f"axis_results has {len(ar)} entries, expected 6")
-        for slug in _SLUGS:
-            v = float(ar[slug])
-            if _math.isnan(v) or _math.isinf(v):
-                raise ValueError(f"axis_results['{slug}'] is NaN/Inf")
-            if not (0.0 <= v <= 1.0):
-                raise ValueError(f"axis_results['{slug}'] = {v} out of [0,1]")
+
+        for key in CANONICAL_AXIS_KEYS:
+            entry = ar[key]
+            for field in ("baseline", "simulated", "delta"):
+                v = float(entry[field])
+                if _math.isnan(v) or _math.isinf(v):
+                    raise ValueError(f"axis_results['{key}']['{field}'] is NaN/Inf")
 
     except Exception as exc:
         logger.error(json.dumps({
@@ -788,26 +812,34 @@ async def scenario(request: Request, body: ScenarioRequest) -> JSONResponse:
             content={
                 "error": "SIMULATION_COMPUTATION_FAILED",
                 "message": "Internal simulation error.",
-                "request_id": request_id,
             },
         )
 
-    # v0.3 response contract — exact shape, no extras, no nulls
+    # v0.4 response contract — exact shape, no extras, no nulls, always deterministic
     response_body = {
+        "baseline_composite": bc,
         "simulated_composite": sc,
+        "baseline_rank": br,
         "simulated_rank": sr,
+        "baseline_classification": bcl,
         "simulated_classification": scl,
-        "axis_results": {slug: float(ar[slug]) for slug in _SLUGS},
-        "request_id": rid,
+        "axis_results": {
+            key: {
+                "baseline": float(ar[key]["baseline"]),
+                "simulated": float(ar[key]["simulated"]),
+                "delta": float(ar[key]["delta"]),
+            }
+            for key in CANONICAL_AXIS_KEYS
+        },
     }
 
     logger.info(json.dumps({
         "event": "scenario_success",
         "request_id": request_id,
         "country_code": body.country_code,
+        "baseline_composite": bc,
         "simulated_composite": sc,
         "simulated_rank": sr,
-        "simulated_classification": scl,
     }))
 
     return JSONResponse(status_code=200, content=response_body)
