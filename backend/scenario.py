@@ -1,112 +1,76 @@
 """
-backend.scenario — ISI Scenario Simulation Engine (v0.4)
+backend.scenario — ISI Scenario Simulation Engine (v0.5)
 
-Pure-computation module. Zero I/O. Zero global state. Zero randomness.
-All functions are deterministic, bounded, and idempotent.
+Thin, data-driven transformation layer on top of baseline ISI data.
+Zero I/O. Zero global state. Zero randomness. Zero duplicate registries.
 
-Given a country's baseline axis scores and a set of adjustments,
-computes the simulated axis scores, composite, rank, and classification.
+Design principle:
+    This module has NO axis registry of its own.
+    The canonical axis keys come from isi.json at runtime.
+    The computation model, classification, and composite formula
+    are identical to the baseline endpoints.
 
-The ISI composite is:
-    ISI_i = (A1_i + A2_i + A3_i + A4_i + A5_i + A6_i) / 6
+Scenario computation model:
+    For each axis:
+        simulated_value = clamp(baseline_value * (1 + shift), 0.0, 1.0)
 
-Classification thresholds (frozen):
-    >= 0.25  → highly_concentrated
-    >= 0.15  → moderately_concentrated
-    >= 0.10  → mildly_concentrated
-    <  0.10  → unconcentrated
+    Composite:
+        simulated_composite = mean(simulated_axes)
 
-Request schema (v0.4):
+    This is a multiplicative shift model, not additive.
+    shift = +0.10 means "10% increase from baseline".
+    shift = -0.10 means "10% decrease from baseline".
+    shift range: [-0.20, +0.20]
+
+Input contract:
     {
-      "country_code": str,        # 2-letter uppercase ISO (EU-27)
-      "adjustments": {             # 0–6 keys, missing → 0.0, out-of-range → clamped
-          "<canonical_axis_key>": float
-      },
-      "meta": {                    # optional, ignored by compute
-          "preset": str | null,
-          "client_version": str | null,
-          "timestamp": str | null
-      }
+        "country": "SE",
+        "shifts": {
+            "Financial Sovereignty": -0.05,
+            "Energy Dependency": 0.10,
+            ...
+        }
     }
 
-    Canonical axis keys:
-      financial_external_supplier_concentration
-      energy_external_supplier_concentration
-      technology_semiconductor_external_supplier_concentration
-      defense_external_supplier_concentration
-      critical_inputs_raw_materials_external_supplier_concentration
-      logistics_freight_external_supplier_concentration
+    - country: 2-letter ISO, uppercased, must exist in baseline dataset
+    - shifts: keyed by axis_name from isi.json country detail files
+    - unknown keys → 400 with explicit reason
+    - values clamped to [-0.20, +0.20]
+    - missing axes → shift = 0.0 (identity)
 
-Response contract (v0.4):
+Output contract:
     {
-      "baseline_composite": float,
-      "simulated_composite": float,
-      "baseline_rank": int,
-      "simulated_rank": int,
-      "baseline_classification": str,
-      "simulated_classification": str,
-      "axis_results": {
-          "<canonical_axis_key>": {
-              "baseline": float,
-              "simulated": float,
-              "delta": float
-          }
-      }
+        "country": "SE",
+        "baseline_composite": float,
+        "simulated_composite": float,
+        "baseline_rank": int,
+        "simulated_rank": int,
+        "baseline_classification": str,
+        "simulated_classification": str,
+        "axis_results": {
+            axis_name: {
+                "baseline": float,
+                "simulated": float,
+                "delta": float
+            }
+        }
     }
-
-    No extra nesting. No renaming. No optional nulls. Always deterministic.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional
-
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Constants — frozen
+# Constants
 # ---------------------------------------------------------------------------
 
 NUM_AXES = 6
+MAX_SHIFT = 0.20
 
-# Canonical axis keys — the long-form names the frontend sends.
-CANONICAL_AXIS_KEYS: tuple[str, ...] = (
-    "financial_external_supplier_concentration",
-    "energy_external_supplier_concentration",
-    "technology_semiconductor_external_supplier_concentration",
-    "defense_external_supplier_concentration",
-    "critical_inputs_raw_materials_external_supplier_concentration",
-    "logistics_freight_external_supplier_concentration",
-)
-
-CANONICAL_AXIS_KEY_SET: frozenset[str] = frozenset(CANONICAL_AXIS_KEYS)
-
-# Maps canonical axis key → key in isi.json countries[] objects
-CANONICAL_TO_ISI_KEY: dict[str, str] = {
-    "financial_external_supplier_concentration": "axis_1_financial",
-    "energy_external_supplier_concentration": "axis_2_energy",
-    "technology_semiconductor_external_supplier_concentration": "axis_3_technology",
-    "defense_external_supplier_concentration": "axis_4_defense",
-    "critical_inputs_raw_materials_external_supplier_concentration": "axis_5_critical_inputs",
-    "logistics_freight_external_supplier_concentration": "axis_6_logistics",
-}
-
-# Also accept short slug names from older frontends → map to canonical
-SHORT_SLUG_TO_CANONICAL: dict[str, str] = {
-    "financial": "financial_external_supplier_concentration",
-    "energy": "energy_external_supplier_concentration",
-    "technology": "technology_semiconductor_external_supplier_concentration",
-    "defense": "defense_external_supplier_concentration",
-    "critical_inputs": "critical_inputs_raw_materials_external_supplier_concentration",
-    "logistics": "logistics_freight_external_supplier_concentration",
-}
-
-# Maximum allowed adjustment magnitude per axis
-MAX_ADJUSTMENT = 0.20
-
-# Classification thresholds (descending)
+# Classification thresholds — IDENTICAL to baseline endpoint logic
 _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
     (0.25, "highly_concentrated"),
     (0.15, "moderately_concentrated"),
@@ -114,148 +78,61 @@ _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
 ]
 _CLASSIFICATION_DEFAULT = "unconcentrated"
 
-# Valid classification labels (for output sanitization)
-VALID_CLASSIFICATIONS: frozenset[str] = frozenset({
-    "highly_concentrated",
-    "moderately_concentrated",
-    "mildly_concentrated",
-    "unconcentrated",
-})
+# ISI key → human-readable axis name (matching axis_name in country detail files)
+# This is the ONLY mapping. It reads from isi.json keys to the names
+# that appear in the /country/{code} endpoint.
+ISI_KEY_TO_AXIS_NAME: dict[str, str] = {
+    "axis_1_financial": "Financial Sovereignty",
+    "axis_2_energy": "Energy Dependency",
+    "axis_3_technology": "Technology / Semiconductor Dependency",
+    "axis_4_defense": "Defense Industrial Dependency",
+    "axis_5_critical_inputs": "Critical Inputs / Raw Materials Dependency",
+    "axis_6_logistics": "Logistics / Freight Dependency",
+}
 
-# Legacy exports for backwards compat in tests
-AXIS_SLUGS = CANONICAL_AXIS_KEYS
+# Reverse: axis name → isi.json key
+AXIS_NAME_TO_ISI_KEY: dict[str, str] = {v: k for k, v in ISI_KEY_TO_AXIS_NAME.items()}
 
+# The 6 isi.json keys, in canonical order
+ISI_AXIS_KEYS: tuple[str, ...] = (
+    "axis_1_financial",
+    "axis_2_energy",
+    "axis_3_technology",
+    "axis_4_defense",
+    "axis_5_critical_inputs",
+    "axis_6_logistics",
+)
 
-# ---------------------------------------------------------------------------
-# Pydantic request model — tolerant, never-400 validation
-# ---------------------------------------------------------------------------
-
-class ScenarioMeta(BaseModel):
-    """Optional metadata from the frontend. Ignored by compute."""
-    preset: Optional[str] = None
-    client_version: Optional[str] = None
-    timestamp: Optional[str] = None
-
-
-class ScenarioRequest(BaseModel):
-    """Tolerant scenario simulation request.
-
-    Design principle: NEVER return 400 for structural reasons.
-    - Missing adjustments keys → filled with 0.0
-    - Out-of-range values → clamped to [-0.20, +0.20]
-    - Unknown keys → silently ignored
-    - Extra top-level fields → silently ignored
-    - Short slugs (financial, energy, ...) → auto-mapped to canonical keys
-    - NaN/Inf values → replaced with 0.0
-    - meta field → optional, passed through
-
-    Only reject:
-    - Missing country_code entirely (422 — malformed JSON)
-    """
-
-    model_config = {"extra": "ignore", "populate_by_name": True}
-
-    country_code: str = Field(
-        ...,
-        alias="countryCode",
-        description="2-letter uppercase ISO country code (EU-27)",
-    )
-    adjustments: Dict[str, float] = Field(
-        default_factory=dict,
-        alias="axis_shifts",
-        description="Per-axis adjustment deltas. Keys are canonical axis keys. Values clamped to [-0.20, +0.20].",
-    )
-    meta: Optional[ScenarioMeta] = None
-
-    @field_validator("country_code")
-    @classmethod
-    def _normalize_country_code(cls, v: str) -> str:
-        if v is None:
-            raise ValueError("country_code must not be null.")
-        v = str(v).strip().upper()
-        if len(v) < 2:
-            raise ValueError(f"country_code too short: '{v}'.")
-        # Take first 2 alpha chars, be tolerant
-        v = v[:2]
-        if not v.isalpha():
-            raise ValueError(f"country_code must be alphabetic: '{v}'.")
-        return v
-
-    @model_validator(mode="after")
-    def _normalize_adjustments(self) -> ScenarioRequest:
-        """Tolerant normalization:
-        - Map short slugs → canonical keys
-        - Ignore unknown keys
-        - Clamp values to [-0.20, +0.20]
-        - Replace NaN/Inf with 0.0
-        - Fill missing canonical keys with 0.0
-        """
-        raw = self.adjustments or {}
-        normalized: Dict[str, float] = {}
-
-        for key, val in raw.items():
-            # Map short slug to canonical if needed
-            canonical = SHORT_SLUG_TO_CANONICAL.get(key, key)
-
-            # Skip unknown keys silently
-            if canonical not in CANONICAL_AXIS_KEY_SET:
-                continue
-
-            # Coerce to float safely
-            try:
-                fval = float(val)
-            except (TypeError, ValueError):
-                fval = 0.0
-
-            # Replace NaN/Inf with 0.0
-            if math.isnan(fval) or math.isinf(fval):
-                fval = 0.0
-
-            # Clamp to [-MAX_ADJUSTMENT, +MAX_ADJUSTMENT]
-            fval = max(-MAX_ADJUSTMENT, min(MAX_ADJUSTMENT, fval))
-
-            normalized[canonical] = fval
-
-        # Fill missing canonical keys with 0.0
-        for key in CANONICAL_AXIS_KEYS:
-            if key not in normalized:
-                normalized[key] = 0.0
-
-        self.adjustments = normalized
-        return self
+# Set of valid axis names (for input validation)
+VALID_AXIS_NAMES: frozenset[str] = frozenset(AXIS_NAME_TO_ISI_KEY.keys())
 
 
 # ---------------------------------------------------------------------------
-# Pure computation functions
+# Pure computation — same functions used by baseline endpoints
 # ---------------------------------------------------------------------------
 
 def classify(composite: float) -> str:
-    """Map a composite score to its classification string.
-
-    Deterministic. Safe for any float in [0, 1].
-    Always returns a member of VALID_CLASSIFICATIONS.
-    """
+    """Classify a composite score. Same logic as baseline."""
     for threshold, label in _CLASSIFICATION_THRESHOLDS:
         if composite >= threshold:
             return label
     return _CLASSIFICATION_DEFAULT
 
 
-def clamp01(value: float) -> float:
-    """Clamp a value to [0.0, 1.0]. Handles NaN/Inf safely."""
+def clamp(value: float, lo: float, hi: float) -> float:
+    """Clamp value to [lo, hi]. NaN/Inf → lo."""
     if math.isnan(value) or math.isinf(value):
-        return 0.0
-    return max(0.0, min(1.0, value))
+        return lo
+    return max(lo, min(hi, value))
 
 
-def compute_composite(axis_scores: dict[str, float]) -> float:
-    """Compute ISI composite as unweighted arithmetic mean of 6 axes.
+def compute_composite(axis_values: dict[str, float]) -> float:
+    """ISI composite = unweighted arithmetic mean of 6 axis scores.
 
-    All inputs must already be clamped to [0, 1].
-    Result is clamped to [0, 1].
+    Same formula as baseline: ISI_i = (A1 + A2 + A3 + A4 + A5 + A6) / 6
     """
-    total = sum(axis_scores[key] for key in CANONICAL_AXIS_KEYS)
-    return clamp01(total / NUM_AXES)
+    total = sum(axis_values[k] for k in ISI_AXIS_KEYS)
+    return clamp(total / NUM_AXES, 0.0, 1.0)
 
 
 def compute_rank(
@@ -263,11 +140,10 @@ def compute_rank(
     simulated_composite: float,
     all_baselines: list[dict[str, Any]],
 ) -> int:
-    """Compute rank (1 = highest dependency) among all countries.
+    """Rank among all countries (1 = highest dependency).
 
-    Replaces the target country's baseline composite with the simulated value,
-    then sorts descending. Ties are broken by country code (alphabetical).
-    Returns rank in [1, len(all_baselines)].
+    Inserts simulated composite for target country into the sorted
+    baseline composites. Ties broken by country code alphabetically.
     """
     composites: list[tuple[float, str]] = []
     for entry in all_baselines:
@@ -277,26 +153,6 @@ def compute_rank(
         else:
             composites.append((entry["isi_composite"], code))
 
-    # Sort: descending by composite, then ascending by code for tie-breaking
-    composites.sort(key=lambda x: (-x[0], x[1]))
-
-    for i, (_, code) in enumerate(composites, 1):
-        if code == country_code:
-            return i
-
-    # Should never happen if country_code is in all_baselines
-    return len(all_baselines)
-
-
-def compute_baseline_rank(
-    country_code: str,
-    all_baselines: list[dict[str, Any]],
-) -> int:
-    """Compute baseline rank for a country from isi.json data."""
-    composites: list[tuple[float, str]] = []
-    for entry in all_baselines:
-        composites.append((entry["isi_composite"], entry["country"]))
-
     composites.sort(key=lambda x: (-x[0], x[1]))
 
     for i, (_, code) in enumerate(composites, 1):
@@ -305,32 +161,33 @@ def compute_baseline_rank(
 
     return len(all_baselines)
 
+
+# ---------------------------------------------------------------------------
+# Main simulation function
+# ---------------------------------------------------------------------------
 
 def simulate(
     country_code: str,
-    adjustments: dict[str, float],
+    shifts: dict[str, float],
     all_baselines: list[dict[str, Any]],
-    request_id: str,
 ) -> dict[str, Any]:
     """Run a scenario simulation for one country.
 
     Args:
-        country_code: ISO-2 country code (uppercase, validated).
-        adjustments: {canonical_axis_key: delta} — all 6 keys present, clamped.
-        all_baselines: The full countries array from isi.json.
-        request_id: UUID from middleware (passed through for tracing).
+        country_code: Uppercase 2-letter ISO code.
+        shifts: {axis_name: float} — shift factors in [-0.20, +0.20].
+                 Missing axes default to 0.0.
+                 Computation: simulated = clamp(baseline * (1 + shift), 0, 1)
+        all_baselines: The countries[] array from isi.json.
 
     Returns:
-        Deterministic response dict matching the v0.4 contract:
-        {baseline_composite, simulated_composite, baseline_rank, simulated_rank,
-         baseline_classification, simulated_classification,
-         axis_results: {key: {baseline, simulated, delta}}}
+        Full response dict matching the output contract.
 
     Raises:
-        ValueError: If country_code not found in baselines.
-        RuntimeError: If baseline data is corrupt or output sanitization fails.
+        ValueError: country_code not found in baseline data.
+        RuntimeError: baseline data is corrupt.
     """
-    # --- Find baseline for the target country ---
+    # Find baseline entry
     baseline_entry: dict[str, Any] | None = None
     for entry in all_baselines:
         if entry["country"] == country_code:
@@ -340,75 +197,47 @@ def simulate(
     if baseline_entry is None:
         raise ValueError(f"Country '{country_code}' not found in ISI baseline data.")
 
-    # --- Extract baseline axis scores ---
+    # Extract baseline axes and compute simulated axes
     baseline_axes: dict[str, float] = {}
-    for canonical_key in CANONICAL_AXIS_KEYS:
-        isi_key = CANONICAL_TO_ISI_KEY[canonical_key]
+    simulated_axes: dict[str, float] = {}
+    axis_results: dict[str, dict[str, float]] = {}
+
+    for isi_key in ISI_AXIS_KEYS:
+        axis_name = ISI_KEY_TO_AXIS_NAME[isi_key]
+
         raw = baseline_entry.get(isi_key)
         if raw is None or not isinstance(raw, (int, float)):
             raise RuntimeError(
                 f"Baseline data corrupt: missing or non-numeric '{isi_key}' for {country_code}."
             )
-        baseline_axes[canonical_key] = clamp01(float(raw))
 
-    # --- Compute baseline composite and rank ---
-    baseline_composite = compute_composite(baseline_axes)
-    baseline_rank = compute_baseline_rank(country_code, all_baselines)
-    baseline_classification = classify(baseline_composite)
+        baseline_val = clamp(float(raw), 0.0, 1.0)
+        shift = shifts.get(axis_name, 0.0)
+        simulated_val = clamp(baseline_val * (1.0 + shift), 0.0, 1.0)
 
-    # --- Apply adjustments → simulated axes ---
-    simulated_axes: dict[str, float] = {}
-    for canonical_key in CANONICAL_AXIS_KEYS:
-        delta = adjustments.get(canonical_key, 0.0)
-        simulated_axes[canonical_key] = clamp01(baseline_axes[canonical_key] + delta)
+        baseline_axes[isi_key] = baseline_val
+        simulated_axes[isi_key] = simulated_val
 
-    # --- Compute simulated composite ---
-    simulated_composite = compute_composite(simulated_axes)
-    simulated_rank = compute_rank(country_code, simulated_composite, all_baselines)
-    simulated_classification = classify(simulated_composite)
-
-    # --- Output sanitization ---
-    baseline_composite = clamp01(baseline_composite)
-    simulated_composite = clamp01(simulated_composite)
-    baseline_rank = int(baseline_rank)
-    simulated_rank = int(simulated_rank)
-
-    for label, comp in [("baseline", baseline_composite), ("simulated", simulated_composite)]:
-        if math.isnan(comp) or math.isinf(comp):
-            raise RuntimeError(f"Output sanitization failed: {label}_composite is NaN or Inf.")
-
-    for cls_label, cls_val in [
-        ("baseline", baseline_classification),
-        ("simulated", simulated_classification),
-    ]:
-        if cls_val not in VALID_CLASSIFICATIONS:
-            raise RuntimeError(
-                f"Output sanitization failed: {cls_label}_classification '{cls_val}' "
-                f"is not in {sorted(VALID_CLASSIFICATIONS)}."
-            )
-
-    for canonical_key in CANONICAL_AXIS_KEYS:
-        for label, axes_dict in [("baseline", baseline_axes), ("simulated", simulated_axes)]:
-            val = axes_dict[canonical_key]
-            if math.isnan(val) or math.isinf(val):
-                raise RuntimeError(
-                    f"Output sanitization failed: {label} axis '{canonical_key}' is NaN or Inf."
-                )
-
-    # --- Build axis_results with baseline/simulated/delta per axis ---
-    axis_results: dict[str, dict[str, float]] = {}
-    for canonical_key in CANONICAL_AXIS_KEYS:
-        b = round(baseline_axes[canonical_key], 10)
-        s = round(simulated_axes[canonical_key], 10)
-        d = round(s - b, 10)
-        axis_results[canonical_key] = {
-            "baseline": b,
-            "simulated": s,
-            "delta": d,
+        axis_results[axis_name] = {
+            "baseline": round(baseline_val, 10),
+            "simulated": round(simulated_val, 10),
+            "delta": round(simulated_val - baseline_val, 10),
         }
 
-    # --- Deterministic response contract (v0.4) ---
+    # Compute composites
+    baseline_composite = compute_composite(baseline_axes)
+    simulated_composite = compute_composite(simulated_axes)
+
+    # Compute ranks
+    baseline_rank = compute_rank(country_code, baseline_composite, all_baselines)
+    simulated_rank = compute_rank(country_code, simulated_composite, all_baselines)
+
+    # Classify
+    baseline_classification = classify(baseline_composite)
+    simulated_classification = classify(simulated_composite)
+
     return {
+        "country": country_code,
         "baseline_composite": round(baseline_composite, 10),
         "simulated_composite": round(simulated_composite, 10),
         "baseline_rank": baseline_rank,
