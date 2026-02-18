@@ -5,38 +5,41 @@ Thin, data-driven transformation layer on top of baseline ISI data.
 Zero I/O. Zero global state. Zero randomness. Zero duplicate registries.
 
 Design principle:
-    This module has NO axis registry of its own.
-    The canonical axis keys come from isi.json at runtime.
-    The computation model, classification, and composite formula
-    are identical to the baseline endpoints.
+    The canonical axis keys for the request payload are the long-form
+    snake_case names. The mapping to isi.json internal keys is defined
+    once here. The computation model, classification, and composite
+    formula are identical to the baseline endpoints.
 
 Scenario computation model:
     For each axis:
-        simulated_value = clamp(baseline_value * (1 + shift), 0.0, 1.0)
+        simulated_value = clamp(baseline_value * (1 + adjustment), 0.0, 1.0)
 
     Composite:
         simulated_composite = mean(simulated_axes)
 
     This is a multiplicative shift model, not additive.
-    shift = +0.10 means "10% increase from baseline".
-    shift = -0.10 means "10% decrease from baseline".
-    shift range: [-0.20, +0.20]
+    adjustment = +0.10 means "10% increase from baseline".
+    adjustment = -0.10 means "10% decrease from baseline".
+    adjustment range: [-0.20, +0.20]
 
 Input contract:
     {
         "country": "SE",
-        "shifts": {
-            "Financial Sovereignty": -0.05,
-            "Energy Dependency": 0.10,
-            ...
+        "adjustments": {
+            "financial_external_supplier_concentration": 0.0,
+            "energy_external_supplier_concentration": 0.0,
+            "technology_semiconductor_external_supplier_concentration": 0.0,
+            "defense_external_supplier_concentration": 0.0,
+            "critical_inputs_raw_materials_external_supplier_concentration": 0.0,
+            "logistics_freight_external_supplier_concentration": 0.0
         }
     }
 
     - country: 2-letter ISO, uppercased, must exist in baseline dataset
-    - shifts: keyed by axis_name from isi.json country detail files
+    - adjustments: keyed by canonical long-form axis key
     - unknown keys → 400 with explicit reason
     - values clamped to [-0.20, +0.20]
-    - missing axes → shift = 0.0 (identity)
+    - missing axes → adjustment = 0.0 (identity)
 
 Output contract:
     {
@@ -48,7 +51,7 @@ Output contract:
         "baseline_classification": str,
         "simulated_classification": str,
         "axis_results": {
-            axis_name: {
+            canonical_key: {
                 "baseline": float,
                 "simulated": float,
                 "delta": float
@@ -68,7 +71,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 NUM_AXES = 6
-MAX_SHIFT = 0.20
+MAX_ADJUSTMENT = 0.20
 
 # Classification thresholds — IDENTICAL to baseline endpoint logic
 _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
@@ -78,20 +81,28 @@ _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
 ]
 _CLASSIFICATION_DEFAULT = "unconcentrated"
 
-# ISI key → human-readable axis name (matching axis_name in country detail files)
-# This is the ONLY mapping. It reads from isi.json keys to the names
-# that appear in the /country/{code} endpoint.
-ISI_KEY_TO_AXIS_NAME: dict[str, str] = {
-    "axis_1_financial": "Financial Sovereignty",
-    "axis_2_energy": "Energy Dependency",
-    "axis_3_technology": "Technology / Semiconductor Dependency",
-    "axis_4_defense": "Defense Industrial Dependency",
-    "axis_5_critical_inputs": "Critical Inputs / Raw Materials Dependency",
-    "axis_6_logistics": "Logistics / Freight Dependency",
-}
+# Canonical long-form axis keys — these are the keys the frontend sends.
+CANONICAL_AXIS_KEYS: tuple[str, ...] = (
+    "financial_external_supplier_concentration",
+    "energy_external_supplier_concentration",
+    "technology_semiconductor_external_supplier_concentration",
+    "defense_external_supplier_concentration",
+    "critical_inputs_raw_materials_external_supplier_concentration",
+    "logistics_freight_external_supplier_concentration",
+)
 
-# Reverse: axis name → isi.json key
-AXIS_NAME_TO_ISI_KEY: dict[str, str] = {v: k for k, v in ISI_KEY_TO_AXIS_NAME.items()}
+# Set of valid canonical keys (for input validation)
+VALID_CANONICAL_KEYS: frozenset[str] = frozenset(CANONICAL_AXIS_KEYS)
+
+# Canonical key → isi.json internal key
+CANONICAL_TO_ISI_KEY: dict[str, str] = {
+    "financial_external_supplier_concentration": "axis_1_financial",
+    "energy_external_supplier_concentration": "axis_2_energy",
+    "technology_semiconductor_external_supplier_concentration": "axis_3_technology",
+    "defense_external_supplier_concentration": "axis_4_defense",
+    "critical_inputs_raw_materials_external_supplier_concentration": "axis_5_critical_inputs",
+    "logistics_freight_external_supplier_concentration": "axis_6_logistics",
+}
 
 # The 6 isi.json keys, in canonical order
 ISI_AXIS_KEYS: tuple[str, ...] = (
@@ -103,8 +114,8 @@ ISI_AXIS_KEYS: tuple[str, ...] = (
     "axis_6_logistics",
 )
 
-# Set of valid axis names (for input validation)
-VALID_AXIS_NAMES: frozenset[str] = frozenset(AXIS_NAME_TO_ISI_KEY.keys())
+# Reverse: isi.json key → canonical key
+ISI_KEY_TO_CANONICAL: dict[str, str] = {v: k for k, v in CANONICAL_TO_ISI_KEY.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -168,16 +179,16 @@ def compute_rank(
 
 def simulate(
     country_code: str,
-    shifts: dict[str, float],
+    adjustments: dict[str, float],
     all_baselines: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Run a scenario simulation for one country.
 
     Args:
         country_code: Uppercase 2-letter ISO code.
-        shifts: {axis_name: float} — shift factors in [-0.20, +0.20].
-                 Missing axes default to 0.0.
-                 Computation: simulated = clamp(baseline * (1 + shift), 0, 1)
+        adjustments: {canonical_key: float} — adjustment factors in [-0.20, +0.20].
+                     Missing axes default to 0.0.
+                     Computation: simulated = clamp(baseline * (1 + adj), 0, 1)
         all_baselines: The countries[] array from isi.json.
 
     Returns:
@@ -202,8 +213,8 @@ def simulate(
     simulated_axes: dict[str, float] = {}
     axis_results: dict[str, dict[str, float]] = {}
 
-    for isi_key in ISI_AXIS_KEYS:
-        axis_name = ISI_KEY_TO_AXIS_NAME[isi_key]
+    for canonical_key in CANONICAL_AXIS_KEYS:
+        isi_key = CANONICAL_TO_ISI_KEY[canonical_key]
 
         raw = baseline_entry.get(isi_key)
         if raw is None or not isinstance(raw, (int, float)):
@@ -212,13 +223,13 @@ def simulate(
             )
 
         baseline_val = clamp(float(raw), 0.0, 1.0)
-        shift = shifts.get(axis_name, 0.0)
-        simulated_val = clamp(baseline_val * (1.0 + shift), 0.0, 1.0)
+        adj = adjustments.get(canonical_key, 0.0)
+        simulated_val = clamp(baseline_val * (1.0 + adj), 0.0, 1.0)
 
         baseline_axes[isi_key] = baseline_val
         simulated_axes[isi_key] = simulated_val
 
-        axis_results[axis_name] = {
+        axis_results[canonical_key] = {
             "baseline": round(baseline_val, 10),
             "simulated": round(simulated_val, 10),
             "delta": round(simulated_val - baseline_val, 10),

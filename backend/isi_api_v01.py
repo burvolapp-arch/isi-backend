@@ -82,11 +82,9 @@ from backend.security import (  # noqa: I001
 )
 
 from backend.scenario import (  # noqa: I001, E402
-    AXIS_NAME_TO_ISI_KEY,
-    ISI_KEY_TO_AXIS_NAME,
-    MAX_SHIFT,
-    VALID_AXIS_NAMES,
-    classify,
+    CANONICAL_AXIS_KEYS,
+    MAX_ADJUSTMENT,
+    VALID_CANONICAL_KEYS,
     simulate,
 )
 
@@ -634,9 +632,9 @@ async def get_isi(request: Request) -> Any:
 # POST /scenario — What-if scenario simulation (v0.5)
 #
 # Strict validation with clear error messages.
-# Input:  {"country": "SE", "shifts": {"Financial Sovereignty": -0.05}}
+# Input:  {"country": "SE", "adjustments": {"defense_external_supplier_concentration": 0.05}}
 # Output: {country, baseline_composite, simulated_composite, ...}
-# Computation: simulated = clamp(baseline * (1 + shift), 0, 1)
+# Computation: simulated = clamp(baseline * (1 + adj), 0, 1)
 # Uses the SAME _get_or_load("isi", ...) data source as GET /isi.
 #
 # Error contract:
@@ -662,19 +660,19 @@ async def scenario_get(request: Request) -> JSONResponse:
 async def scenario(request: Request, body: dict) -> JSONResponse:
     """Deterministic what-if scenario simulation (v0.5).
 
-    Input:  {"country": "SE", "shifts": {"Financial Sovereignty": -0.05, ...}}
+    Input:  {"country": "SE", "adjustments": {"defense_external_supplier_concentration": 0.05, ...}}
     Output: {country, baseline_composite, simulated_composite, baseline_rank,
              simulated_rank, baseline_classification, simulated_classification,
-             axis_results: {axis_name: {baseline, simulated, delta}}}
+             axis_results: {canonical_key: {baseline, simulated, delta}}}
 
     Strict validation:
     - country: required, 2-letter, must be in EU-27
-    - shifts: optional dict, keys must match axis_name from axes.json
-    - shift values: must be numeric, clamped to [-0.20, +0.20]
+    - adjustments: optional dict, keys must be canonical long-form axis keys
+    - adjustment values: must be numeric, clamped to [-0.20, +0.20]
     - unknown axis keys → 400 with explicit reason
 
     Computation model (multiplicative):
-        simulated = clamp(baseline * (1 + shift), 0.0, 1.0)
+        simulated = clamp(baseline * (1 + adjustment), 0.0, 1.0)
 
     NOTE: `body: dict` uses FastAPI native body injection.
     This avoids manually calling `await request.json()` which deadlocks
@@ -732,22 +730,22 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
             },
         )
 
-    # --- Extract and validate shifts ---
-    shifts_raw = body.get("shifts", {})
-    if not isinstance(shifts_raw, dict):
+    # --- Extract and validate adjustments ---
+    adjustments_raw = body.get("adjustments", {})
+    if not isinstance(adjustments_raw, dict):
         return JSONResponse(
             status_code=400,
             content={
                 "error": "BAD_INPUT",
-                "message": "Field 'shifts' must be an object (or omitted for no shifts).",
+                "message": "Field 'adjustments' must be an object (or omitted for no adjustments).",
             },
         )
 
-    shifts: dict[str, float] = {}
+    adjustments: dict[str, float] = {}
     unknown_keys: list[str] = []
 
-    for key, val in shifts_raw.items():
-        if key not in VALID_AXIS_NAMES:
+    for key, val in adjustments_raw.items():
+        if key not in VALID_CANONICAL_KEYS:
             unknown_keys.append(key)
             continue
 
@@ -758,16 +756,16 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
                 status_code=400,
                 content={
                     "error": "BAD_INPUT",
-                    "message": f"Shift value for '{key}' must be numeric. Got: {val!r}.",
+                    "message": f"Adjustment value for '{key}' must be numeric. Got: {val!r}.",
                 },
             )
 
         if _math.isnan(fval) or _math.isinf(fval):
             fval = 0.0
 
-        # Clamp to [-MAX_SHIFT, +MAX_SHIFT]
-        fval = max(-MAX_SHIFT, min(MAX_SHIFT, fval))
-        shifts[key] = fval
+        # Clamp to [-MAX_ADJUSTMENT, +MAX_ADJUSTMENT]
+        fval = max(-MAX_ADJUSTMENT, min(MAX_ADJUSTMENT, fval))
+        adjustments[key] = fval
 
     if unknown_keys:
         return JSONResponse(
@@ -775,11 +773,11 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
             content={
                 "error": "BAD_INPUT",
                 "message": f"Unknown axis keys: {unknown_keys}. "
-                           f"Valid keys: {sorted(VALID_AXIS_NAMES)}",
+                           f"Valid keys: {sorted(VALID_CANONICAL_KEYS)}",
             },
         )
 
-    print(f"[scenario] validated shifts={shifts}")
+    print(f"[scenario] validated adjustments={adjustments}")
 
     # --- Load baseline data (SAME data source as GET /isi) ---
     isi_data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
@@ -816,7 +814,7 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
     try:
         result = simulate(
             country_code=country_code,
-            shifts=shifts,
+            adjustments=adjustments,
             all_baselines=all_baselines,
         )
     except ValueError as exc:
@@ -876,12 +874,12 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
         if not isinstance(ar, dict) or len(ar) != 6:
             raise ValueError(f"axis_results has {len(ar)} entries, expected 6")
 
-        for axis_name in VALID_AXIS_NAMES:
-            entry = ar[axis_name]
+        for ckey in CANONICAL_AXIS_KEYS:
+            entry = ar[ckey]
             for field in ("baseline", "simulated", "delta"):
                 v = float(entry[field])
                 if _math.isnan(v) or _math.isinf(v):
-                    raise ValueError(f"axis_results['{axis_name}']['{field}'] is NaN/Inf")
+                    raise ValueError(f"axis_results['{ckey}']['{field}'] is NaN/Inf")
 
     except Exception as exc:
         logger.error(json.dumps({
@@ -908,12 +906,12 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
         "baseline_classification": bcl,
         "simulated_classification": scl,
         "axis_results": {
-            axis_name: {
-                "baseline": float(ar[axis_name]["baseline"]),
-                "simulated": float(ar[axis_name]["simulated"]),
-                "delta": float(ar[axis_name]["delta"]),
+            ckey: {
+                "baseline": float(ar[ckey]["baseline"]),
+                "simulated": float(ar[ckey]["simulated"]),
+                "delta": float(ar[ckey]["delta"]),
             }
-            for axis_name in VALID_AXIS_NAMES
+            for ckey in CANONICAL_AXIS_KEYS
         },
     }
 
