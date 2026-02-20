@@ -29,8 +29,11 @@ from backend.scenario import (
     MAX_ADJUSTMENT,
     SCENARIO_VERSION,
     VALID_CANONICAL_KEYS,
+    VALID_CLASSIFICATIONS,
     ScenarioRequest,
     ScenarioResponse,
+    _CLASSIFICATION_DEFAULT,
+    _CLASSIFICATION_THRESHOLDS,
     classify,
     clamp,
     compute_composite,
@@ -218,26 +221,26 @@ class TestScenarioRequest:
 
 class TestClassify:
     def test_highly_concentrated(self):
-        assert classify(0.25) == "highly_concentrated"
         assert classify(0.50) == "highly_concentrated"
+        assert classify(0.75) == "highly_concentrated"
         assert classify(1.0) == "highly_concentrated"
 
     def test_moderately_concentrated(self):
-        assert classify(0.15) == "moderately_concentrated"
-        assert classify(0.24) == "moderately_concentrated"
+        assert classify(0.25) == "moderately_concentrated"
+        assert classify(0.49) == "moderately_concentrated"
 
     def test_mildly_concentrated(self):
-        assert classify(0.10) == "mildly_concentrated"
-        assert classify(0.14) == "mildly_concentrated"
+        assert classify(0.15) == "mildly_concentrated"
+        assert classify(0.24) == "mildly_concentrated"
 
     def test_unconcentrated(self):
-        assert classify(0.09) == "unconcentrated"
+        assert classify(0.14) == "unconcentrated"
         assert classify(0.0) == "unconcentrated"
 
     def test_boundary_exact(self):
-        assert classify(0.25) == "highly_concentrated"
-        assert classify(0.15) == "moderately_concentrated"
-        assert classify(0.10) == "mildly_concentrated"
+        assert classify(0.50) == "highly_concentrated"
+        assert classify(0.25) == "moderately_concentrated"
+        assert classify(0.15) == "mildly_concentrated"
 
 
 class TestClamp:
@@ -543,3 +546,365 @@ class TestSimulate:
         parsed = _json.loads(serialised)
         assert parsed["country"] == "SE"
         assert set(parsed["baseline"]["axes"].keys()) == set(CANONICAL_AXIS_KEYS)
+
+
+# ---------------------------------------------------------------------------
+# Math consistency invariant tests
+# ---------------------------------------------------------------------------
+
+# Ordered classification labels from most concentrated to least
+_ORDERED_LABELS = [t[1] for t in sorted(_CLASSIFICATION_THRESHOLDS, reverse=True)] + [_CLASSIFICATION_DEFAULT]
+# e.g. ["highly_concentrated", "moderately_concentrated", "mildly_concentrated", "unconcentrated"]
+
+
+def _label_rank(label: str) -> int:
+    """Return severity rank: 0 = most concentrated, higher = less concentrated."""
+    return _ORDERED_LABELS.index(label)
+
+
+class TestMonotonicity:
+    """Invariant: all-negative adjustments → composite decreases,
+    classification stays same or becomes LESS concentrated (never more)."""
+
+    def test_uniform_decrease_lowers_composite(self, all_baselines):
+        """All axes decreased by same proportion → composite MUST decrease."""
+        result = simulate(
+            country_code="SE",
+            adjustments={k: -0.15 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=all_baselines,
+        )
+        assert result.simulated.composite < result.baseline.composite
+        assert result.delta.composite < 0.0
+
+    def test_uniform_increase_raises_composite(self, all_baselines):
+        """All axes increased by same proportion → composite MUST increase."""
+        result = simulate(
+            country_code="SE",
+            adjustments={k: 0.15 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=all_baselines,
+        )
+        assert result.simulated.composite > result.baseline.composite
+        assert result.delta.composite > 0.0
+
+    def test_decrease_never_worsens_classification(self, all_baselines):
+        """Negative adjustments → classification cannot become MORE concentrated."""
+        result = simulate(
+            country_code="SE",
+            adjustments={k: -0.20 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=all_baselines,
+        )
+        baseline_rank = _label_rank(result.baseline.classification)
+        simulated_rank = _label_rank(result.simulated.classification)
+        # Higher rank number = less concentrated; simulated should be >= baseline
+        assert simulated_rank >= baseline_rank, (
+            f"Classification worsened: {result.baseline.classification} → "
+            f"{result.simulated.classification}"
+        )
+
+    def test_increase_never_improves_classification(self, all_baselines):
+        """Positive adjustments → classification cannot become LESS concentrated."""
+        result = simulate(
+            country_code="SE",
+            adjustments={k: 0.20 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=all_baselines,
+        )
+        baseline_rank = _label_rank(result.baseline.classification)
+        simulated_rank = _label_rank(result.simulated.classification)
+        # Lower rank number = more concentrated; simulated should be <= baseline
+        assert simulated_rank <= baseline_rank, (
+            f"Classification improved: {result.baseline.classification} → "
+            f"{result.simulated.classification}"
+        )
+
+    def test_per_axis_decrease_lowers_that_axis(self, all_baselines):
+        """Each individual axis decrease MUST lower that axis's simulated value."""
+        for ckey in CANONICAL_AXIS_KEYS:
+            result = simulate(
+                country_code="SE",
+                adjustments={ckey: -0.10},
+                all_baselines=all_baselines,
+            )
+            base_val = getattr(result.baseline.axes, ckey)
+            sim_val = getattr(result.simulated.axes, ckey)
+            if base_val > 0.0:
+                assert sim_val < base_val, f"{ckey}: simulated >= baseline after decrease"
+
+    def test_per_axis_increase_raises_that_axis(self, all_baselines):
+        """Each individual axis increase MUST raise that axis's simulated value."""
+        for ckey in CANONICAL_AXIS_KEYS:
+            result = simulate(
+                country_code="SE",
+                adjustments={ckey: 0.10},
+                all_baselines=all_baselines,
+            )
+            base_val = getattr(result.baseline.axes, ckey)
+            sim_val = getattr(result.simulated.axes, ckey)
+            if base_val < 1.0:
+                assert sim_val > base_val, f"{ckey}: simulated <= baseline after increase"
+
+    def test_monotonicity_all_countries(self, all_baselines):
+        """For EVERY country: uniform decrease → composite decreases."""
+        for code, _ in EU27_CODES:
+            result = simulate(
+                country_code=code,
+                adjustments={k: -0.10 for k in CANONICAL_AXIS_KEYS},
+                all_baselines=all_baselines,
+            )
+            assert result.simulated.composite < result.baseline.composite, (
+                f"{code}: composite did not decrease with -10% all axes"
+            )
+
+
+class TestIdentity:
+    """Invariant: zero adjustments → exact reproduction of baseline."""
+
+    def test_zero_adjustment_exact_match(self, all_baselines):
+        """Explicit zero on all axes ≡ empty adjustments."""
+        r_empty = simulate(country_code="SE", adjustments={}, all_baselines=all_baselines)
+        r_zeros = simulate(
+            country_code="SE",
+            adjustments={k: 0.0 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=all_baselines,
+        )
+        assert r_empty.baseline.composite == r_zeros.baseline.composite
+        assert r_empty.simulated.composite == r_zeros.simulated.composite
+        assert r_empty.baseline.classification == r_zeros.baseline.classification
+        assert r_empty.simulated.classification == r_zeros.simulated.classification
+        assert r_empty.baseline.rank == r_zeros.baseline.rank
+        assert r_empty.simulated.rank == r_zeros.simulated.rank
+
+    def test_identity_all_countries(self, all_baselines):
+        """Zero adjustments for ALL countries: baseline == simulated."""
+        for code, _ in EU27_CODES:
+            result = simulate(
+                country_code=code, adjustments={}, all_baselines=all_baselines,
+            )
+            assert result.baseline.composite == result.simulated.composite, f"{code}: identity failed"
+            assert result.baseline.classification == result.simulated.classification, f"{code}: classification identity failed"
+            assert result.baseline.rank == result.simulated.rank, f"{code}: rank identity failed"
+            assert result.delta.composite == pytest.approx(0.0), f"{code}: delta not zero"
+
+
+class TestThresholdConsistency:
+    """Invariant: classify() thresholds match the exporter (export_isi_backend_v01.py).
+
+    The authoritative thresholds are from standard HHI interpretation:
+        ≥ 0.50 → highly_concentrated
+        ≥ 0.25 → moderately_concentrated
+        ≥ 0.15 → mildly_concentrated
+        < 0.15 → unconcentrated
+    """
+
+    def test_thresholds_match_exporter(self):
+        """Scenario thresholds must be exactly [0.50, 0.25, 0.15]."""
+        thresholds_only = [t for t, _ in _CLASSIFICATION_THRESHOLDS]
+        assert thresholds_only == [0.50, 0.25, 0.15], (
+            f"Thresholds drifted from exporter: {thresholds_only}"
+        )
+
+    def test_labels_in_correct_order(self):
+        """Thresholds descend; labels go highly → moderately → mildly."""
+        for i in range(len(_CLASSIFICATION_THRESHOLDS) - 1):
+            t1, _ = _CLASSIFICATION_THRESHOLDS[i]
+            t2, _ = _CLASSIFICATION_THRESHOLDS[i + 1]
+            assert t1 > t2, "Thresholds not in descending order"
+        labels = [label for _, label in _CLASSIFICATION_THRESHOLDS]
+        assert labels == [
+            "highly_concentrated",
+            "moderately_concentrated",
+            "mildly_concentrated",
+        ]
+
+    def test_default_label_is_unconcentrated(self):
+        assert _CLASSIFICATION_DEFAULT == "unconcentrated"
+
+    def test_full_spectrum_coverage(self):
+        """Ensure all four labels are reachable."""
+        assert classify(1.0) == "highly_concentrated"
+        assert classify(0.50) == "highly_concentrated"
+        assert classify(0.49) == "moderately_concentrated"
+        assert classify(0.25) == "moderately_concentrated"
+        assert classify(0.24) == "mildly_concentrated"
+        assert classify(0.15) == "mildly_concentrated"
+        assert classify(0.14) == "unconcentrated"
+        assert classify(0.0) == "unconcentrated"
+
+    def test_classify_monotonic_across_spectrum(self):
+        """As score increases, classification can only stay the same or worsen."""
+        scores = [i / 100.0 for i in range(0, 101)]
+        labels = [classify(s) for s in scores]
+        for i in range(1, len(labels)):
+            assert _label_rank(labels[i]) <= _label_rank(labels[i - 1]), (
+                f"classify({scores[i]})={labels[i]} is LESS concentrated than "
+                f"classify({scores[i-1]})={labels[i-1]}"
+            )
+
+
+class TestOrderingConsistency:
+    """Invariant: sorting by composite must match rank output."""
+
+    def test_baseline_rank_matches_composite_sort(self, all_baselines):
+        """Ranks computed by compute_rank match descending composite order."""
+        results = []
+        for code, _ in EU27_CODES:
+            result = simulate(
+                country_code=code, adjustments={}, all_baselines=all_baselines,
+            )
+            results.append((code, result.baseline.composite, result.baseline.rank))
+
+        # Sort by composite descending, then code ascending (tie-break)
+        sorted_by_composite = sorted(results, key=lambda x: (-x[1], x[0]))
+        for expected_rank, (code, composite, actual_rank) in enumerate(sorted_by_composite, 1):
+            assert actual_rank == expected_rank, (
+                f"{code}: expected rank {expected_rank} (composite={composite:.8f}), got {actual_rank}"
+            )
+
+    def test_simulated_rank_reflects_simulated_composite(self, all_baselines):
+        """After adjusting SE, its simulated rank reflects the new composite position."""
+        result = simulate(
+            country_code="SE",
+            adjustments={k: -0.20 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=all_baselines,
+        )
+        # Simulated composite lower → rank should be higher number (less dependent)
+        assert result.simulated.rank >= result.baseline.rank
+
+
+class TestDeterminism:
+    """Invariant: identical inputs → identical outputs (except timestamp)."""
+
+    def test_deterministic_across_100_runs(self, all_baselines):
+        """100 consecutive runs with same input produce identical results."""
+        kwargs = dict(
+            country_code="SE",
+            adjustments={K_DEF: 0.10, K_ENE: -0.05},
+            all_baselines=all_baselines,
+        )
+        reference = simulate(**kwargs).model_dump()
+        reference.pop("meta")
+
+        for _ in range(100):
+            current = simulate(**kwargs).model_dump()
+            current.pop("meta")
+            assert current == reference
+
+
+class TestInputValidation:
+    """Invariant: impossible / malformed inputs are rejected or clamped."""
+
+    def test_adjustment_at_bounds(self, all_baselines):
+        """±0.20 adjustments accepted and produce valid output."""
+        result = simulate(
+            country_code="SE",
+            adjustments={K_DEF: 0.20, K_ENE: -0.20},
+            all_baselines=all_baselines,
+        )
+        assert 0.0 <= result.simulated.composite <= 1.0
+
+    def test_all_axes_zero_baseline_no_nan(self):
+        """Country with all-zero baselines: adjustments produce 0, not NaN."""
+        # Build a minimal synthetic baseline
+        zero_entry = {
+            "country": "ZZ",
+            "country_name": "Zero Land",
+            **{k: 0.0 for k in ISI_AXIS_KEYS},
+            "isi_composite": 0.0,
+            "classification": "unconcentrated",
+            "complete": True,
+        }
+        result = simulate(
+            country_code="ZZ",
+            adjustments={k: 0.20 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=[zero_entry],
+        )
+        assert result.simulated.composite == 0.0
+        assert not math.isnan(result.simulated.composite)
+        assert not math.isinf(result.simulated.composite)
+
+    def test_all_axes_one_baseline_clamped(self):
+        """Country with all 1.0 baselines: +20% adjustment clamps to 1.0."""
+        one_entry = {
+            "country": "ZZ",
+            "country_name": "One Land",
+            **{k: 1.0 for k in ISI_AXIS_KEYS},
+            "isi_composite": 1.0,
+            "classification": "highly_concentrated",
+            "complete": True,
+        }
+        result = simulate(
+            country_code="ZZ",
+            adjustments={k: 0.20 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=[one_entry],
+        )
+        assert result.simulated.composite == pytest.approx(1.0)
+        for ckey in CANONICAL_AXIS_KEYS:
+            assert getattr(result.simulated.axes, ckey) == pytest.approx(1.0)
+
+
+class TestBulgariaRegression:
+    """Regression test for the original reported bug:
+    Bulgaria with -20% all axes must NOT show a worsened classification.
+
+    Uses synthetic baselines that reproduce the real data pattern.
+    """
+
+    @pytest.fixture
+    def bg_baselines(self):
+        """Build baselines where BG has its real ISI scores."""
+        bg_scores = {
+            "axis_1_financial": 0.16052965,
+            "axis_2_energy": 0.35711773,
+            "axis_3_technology": 0.15204272,
+            "axis_4_defense": 0.86064518,
+            "axis_5_critical_inputs": 0.14843767,
+            "axis_6_logistics": 0.36290606,
+        }
+        bg_composite = sum(bg_scores.values()) / 6  # ≈ 0.34028
+        bg_entry = {
+            "country": "BG",
+            "country_name": "Bulgaria",
+            **bg_scores,
+            "isi_composite": bg_composite,
+            "classification": classify(bg_composite),
+            "complete": True,
+        }
+        # Add filler countries so rank computation works
+        fillers = []
+        for code, name in EU27_CODES:
+            if code == "BG":
+                continue
+            fillers.append(_make_baseline_entry(code, name))
+        return [bg_entry] + fillers
+
+    def test_bg_baseline_is_moderately_concentrated(self, bg_baselines):
+        """BG composite ≈ 0.34 → must be moderately_concentrated, not highly."""
+        result = simulate(
+            country_code="BG", adjustments={}, all_baselines=bg_baselines,
+        )
+        assert result.baseline.classification == "moderately_concentrated"
+
+    def test_bg_minus_20_never_worsens(self, bg_baselines):
+        """BG with -20% all axes: classification CANNOT become more concentrated."""
+        result = simulate(
+            country_code="BG",
+            adjustments={k: -0.20 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=bg_baselines,
+        )
+        assert result.simulated.composite < result.baseline.composite
+        baseline_sev = _label_rank(result.baseline.classification)
+        simulated_sev = _label_rank(result.simulated.classification)
+        assert simulated_sev >= baseline_sev, (
+            f"BG classification WORSENED: {result.baseline.classification} → "
+            f"{result.simulated.classification}"
+        )
+
+    def test_bg_minus_20_composite_drops(self, bg_baselines):
+        """BG composite MUST decrease with -20% on all axes."""
+        result = simulate(
+            country_code="BG",
+            adjustments={k: -0.20 for k in CANONICAL_AXIS_KEYS},
+            all_baselines=bg_baselines,
+        )
+        # 0.34028 * 0.80 ≈ 0.27222
+        assert result.simulated.composite == pytest.approx(0.27222, abs=0.001)
+        assert result.delta.composite < 0.0

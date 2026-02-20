@@ -46,10 +46,31 @@ Output contract (ScenarioResponse — Pydantic-validated before return):
 from __future__ import annotations
 
 import math
+import os
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# ---------------------------------------------------------------------------
+# Debug trace — controlled by SCENARIO_DEBUG=1 environment variable
+# ---------------------------------------------------------------------------
+
+_logger = logging.getLogger("scenario")
+
+SCENARIO_DEBUG = os.environ.get("SCENARIO_DEBUG", "0") == "1"
+
+if SCENARIO_DEBUG:
+    logging.basicConfig(level=logging.DEBUG, format="%(name)s %(message)s")
+    _logger.setLevel(logging.DEBUG)
+
+
+def _trace(msg: str) -> None:
+    """Emit a structured debug trace line when SCENARIO_DEBUG=1."""
+    if SCENARIO_DEBUG:
+        _logger.debug(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -60,11 +81,12 @@ NUM_AXES = 6
 MAX_ADJUSTMENT = 0.20
 SCENARIO_VERSION = "scenario-v1"
 
-# Classification thresholds — IDENTICAL to baseline endpoint logic
+# Classification thresholds — MUST match export_isi_backend_v01.classify_score()
+# Based on standard HHI interpretation: ≥0.50 highly, ≥0.25 moderately, ≥0.15 mildly
 _CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
-    (0.25, "highly_concentrated"),
-    (0.15, "moderately_concentrated"),
-    (0.10, "mildly_concentrated"),
+    (0.50, "highly_concentrated"),
+    (0.25, "moderately_concentrated"),
+    (0.15, "mildly_concentrated"),
 ]
 _CLASSIFICATION_DEFAULT = "unconcentrated"
 VALID_CLASSIFICATIONS: frozenset[str] = frozenset(
@@ -337,6 +359,8 @@ def simulate(
     if baseline_entry is None:
         raise ValueError(f"Country '{country_code}' not found in ISI baseline data.")
 
+    _trace(f"simulate({country_code}) adjustments={adjustments}")
+
     # Extract baseline axes and compute simulated axes
     baseline_isi_axes: dict[str, float] = {}
     simulated_isi_axes: dict[str, float] = {}
@@ -357,6 +381,8 @@ def simulate(
         adj = adjustments.get(canonical_key, 0.0)
         simulated_val = clamp(baseline_val * (1.0 + adj), 0.0, 1.0)
 
+        _trace(f"  {canonical_key}: baseline={baseline_val:.8f} adj={adj:+.4f} simulated={simulated_val:.8f}")
+
         baseline_isi_axes[isi_key] = baseline_val
         simulated_isi_axes[isi_key] = simulated_val
 
@@ -368,6 +394,8 @@ def simulate(
     baseline_composite = compute_composite(baseline_isi_axes)
     simulated_composite = compute_composite(simulated_isi_axes)
 
+    _trace(f"  composite: baseline={baseline_composite:.10f} simulated={simulated_composite:.10f}")
+
     # Compute ranks
     baseline_rank = compute_rank(country_code, baseline_composite, all_baselines)
     simulated_rank = compute_rank(country_code, simulated_composite, all_baselines)
@@ -375,6 +403,9 @@ def simulate(
     # Classify
     baseline_classification = classify(baseline_composite)
     simulated_classification = classify(simulated_composite)
+
+    _trace(f"  classification: baseline={baseline_classification} simulated={simulated_classification}")
+    _trace(f"  rank: baseline={baseline_rank} simulated={simulated_rank}")
 
     # Build and validate response through Pydantic
     return ScenarioResponse(
