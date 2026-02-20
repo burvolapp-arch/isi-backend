@@ -288,8 +288,8 @@ logger.info("CORS configured for: %s (regex: %s)", _CORS_ORIGINS, _CORS_ORIGIN_R
 # ---------------------------------------------------------------------------
 # Security & performance middleware (order matters: last registered = outermost)
 # Starlette runs middleware in reverse registration order.
-# Registration order here:  CORS → RequestId → RequestSizeLimit → ETag → SecurityHeaders → GZip
-# Execution order (outermost first): GZip → SecurityHeaders → ETag → RequestSizeLimit → RequestId → CORS
+# Registration order here:  CORS → SecurityHeaders → ETag → RequestSizeLimit → RequestId → GZip
+# Execution order (outermost first): GZip → RequestId → RequestSizeLimit → ETag → SecurityHeaders → CORS
 # ---------------------------------------------------------------------------
 
 app.add_middleware(SecurityHeadersMiddleware, enable_hsts=(ENV == "prod"))
@@ -683,13 +683,13 @@ async def scenario_schema(request: Request) -> JSONResponse:
                 "baseline": {
                     "composite": 0.1967,
                     "rank": 15,
-                    "classification": "moderately_concentrated",
+                    "classification": "mildly_concentrated",
                     "axes": {k: 0.20 for k in CANONICAL_AXIS_KEYS},
                 },
                 "simulated": {
                     "composite": 0.1950,
                     "rank": 16,
-                    "classification": "moderately_concentrated",
+                    "classification": "mildly_concentrated",
                     "axes": {k: 0.20 for k in CANONICAL_AXIS_KEYS},
                 },
                 "delta": {

@@ -89,9 +89,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "max-age=31536000; includeSubDomains; preload"
             )
 
-        # --- Cache-Control per path ---
+        # --- Cache-Control per path / method ---
         path = request.url.path
-        if path in self._NO_STORE_PATHS:
+        if path in self._NO_STORE_PATHS or request.method != "GET":
+            # Health/ready endpoints and non-GET (POST /scenario) must never be cached
             response.headers["Cache-Control"] = "no-store"
         elif path == "/":
             response.headers["Cache-Control"] = "public, max-age=3600"
