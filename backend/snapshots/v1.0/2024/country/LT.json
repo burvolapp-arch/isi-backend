@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "unconcentrated",
+      "score": 0.13349636
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.33747627
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "mildly_concentrated",
+      "score": 0.24172279
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "moderately_concentrated",
+      "score": 0.40227798
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "unconcentrated",
+      "score": 0.13056067
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.34689716
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "LT",
+  "country_name": "Lithuania",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.2654052,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

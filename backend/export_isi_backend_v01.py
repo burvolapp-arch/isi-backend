@@ -31,6 +31,9 @@ import math
 import sys
 from pathlib import Path
 
+from backend.constants import COUNTRY_NAMES, ROUND_PRECISION
+from backend.methodology import classify
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -51,19 +54,6 @@ NUM_AXES = 6
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA = PROJECT_ROOT / "data" / "processed"
 OUTPUT_ROOT = PROJECT_ROOT / "backend" / "v01"
-
-# Country names — static, avoids external dependency
-COUNTRY_NAMES = {
-    "AT": "Austria", "BE": "Belgium", "BG": "Bulgaria",
-    "CY": "Cyprus", "CZ": "Czechia", "DE": "Germany",
-    "DK": "Denmark", "EE": "Estonia", "EL": "Greece",
-    "ES": "Spain", "FI": "Finland", "FR": "France",
-    "HR": "Croatia", "HU": "Hungary", "IE": "Ireland",
-    "IT": "Italy", "LT": "Lithuania", "LU": "Luxembourg",
-    "LV": "Latvia", "MT": "Malta", "NL": "Netherlands",
-    "PL": "Poland", "PT": "Portugal", "RO": "Romania",
-    "SE": "Sweden", "SI": "Slovenia", "SK": "Slovakia",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -517,17 +507,8 @@ def write_json(filepath: Path, data: object) -> None:
 
 
 def classify_score(score: float) -> str:
-    """
-    Generate a machine-readable concentration classification.
-    Thresholds from standard HHI interpretation used across all audits.
-    """
-    if score >= 0.50:
-        return "highly_concentrated"
-    if score >= 0.25:
-        return "moderately_concentrated"
-    if score >= 0.15:
-        return "mildly_concentrated"
-    return "unconcentrated"
+    """Classify a score. Delegates to methodology.classify() — single source of truth."""
+    return classify(score)
 
 
 def driver_statement(axis_slug: str, score: float, country: str) -> str:
@@ -941,7 +922,8 @@ def build_axis_detail(
         countries.append(entry)
 
     # Sort by score descending (most concentrated first), nulls last
-    countries.sort(key=lambda x: -(x["score"] if x["score"] is not None else -1.0))
+    # Tie-break: alphabetical by country code (D-2 fix)
+    countries.sort(key=lambda x: (-(x["score"] if x["score"] is not None else -1.0), x["country"]))
 
     vals = [c["score"] for c in countries if c["score"] is not None]
 
@@ -1005,7 +987,8 @@ def build_isi_composite(
         })
 
     # Sort by composite descending, nulls last
-    rows.sort(key=lambda x: -(x["isi_composite"] if x["isi_composite"] is not None else -1.0))
+    # Tie-break: alphabetical by country code (D-2 fix)
+    rows.sort(key=lambda x: (-(x["isi_composite"] if x["isi_composite"] is not None else -1.0), x["country"]))
 
     vals = [r["isi_composite"] for r in rows if r["isi_composite"] is not None]
 

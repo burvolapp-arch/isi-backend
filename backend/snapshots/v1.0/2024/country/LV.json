@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "unconcentrated",
+      "score": 0.12316988
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.36522282
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "unconcentrated",
+      "score": 0.13309607
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "moderately_concentrated",
+      "score": 0.34079636
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "mildly_concentrated",
+      "score": 0.15120012
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.36822299
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "LV",
+  "country_name": "Latvia",
+  "isi_classification": "mildly_concentrated",
+  "isi_composite": 0.24695137,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

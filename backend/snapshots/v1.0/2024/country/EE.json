@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "mildly_concentrated",
+      "score": 0.18172493
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.43935251
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "mildly_concentrated",
+      "score": 0.22713142
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "moderately_concentrated",
+      "score": 0.35561474
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "moderately_concentrated",
+      "score": 0.38622776
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.46987927
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "EE",
+  "country_name": "Estonia",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.34332177,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

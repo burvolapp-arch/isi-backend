@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "mildly_concentrated",
+      "score": 0.16052965
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.35711773
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "mildly_concentrated",
+      "score": 0.15204272
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "highly_concentrated",
+      "score": 0.86064518
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "unconcentrated",
+      "score": 0.14843767
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.36290606
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "BG",
+  "country_name": "Bulgaria",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.34027984,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

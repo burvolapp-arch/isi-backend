@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "unconcentrated",
+      "score": 0.14554195
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.30187479
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "mildly_concentrated",
+      "score": 0.19263249
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "moderately_concentrated",
+      "score": 0.38088569
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "unconcentrated",
+      "score": 0.11235234
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.43235135
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "ES",
+  "country_name": "Spain",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.26093977,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

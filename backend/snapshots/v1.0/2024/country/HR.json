@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "moderately_concentrated",
+      "score": 0.27299265
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.35125471
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "mildly_concentrated",
+      "score": 0.17343982
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "highly_concentrated",
+      "score": 0.74648317
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "highly_concentrated",
+      "score": 0.52392772
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.357988
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "HR",
+  "country_name": "Croatia",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.40434768,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

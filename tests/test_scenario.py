@@ -396,14 +396,19 @@ class TestSimulate:
         assert getattr(result.simulated.axes, K_ENE) == pytest.approx(0.085)
 
     def test_delta_is_simulated_minus_baseline(self, all_baselines):
-        """delta.composite = simulated.composite - baseline.composite, etc."""
+        """delta.composite ≈ simulated.composite - baseline.composite.
+
+        The delta is independently rounded: round(raw_sim - raw_base, ROUND_PRECISION).
+        Due to rounding, round(a-b) may differ from round(a) - round(b) by up to
+        1 ULP (1e-ROUND_PRECISION). We use abs=1.5e-8 tolerance.
+        """
         result = simulate(
             country_code="SE",
             adjustments={K_DEF: 0.10, K_ENE: -0.05},
             all_baselines=all_baselines,
         )
         assert result.delta.composite == pytest.approx(
-            result.simulated.composite - result.baseline.composite
+            result.simulated.composite - result.baseline.composite, abs=1.5e-8
         )
         assert result.delta.rank == result.simulated.rank - result.baseline.rank
 

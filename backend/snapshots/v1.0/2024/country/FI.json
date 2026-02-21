@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "unconcentrated",
+      "score": 0.11775073
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.36268783
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "mildly_concentrated",
+      "score": 0.19789321
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "moderately_concentrated",
+      "score": 0.38964518
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "highly_concentrated",
+      "score": 0.54699996
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "highly_concentrated",
+      "score": 0.79733123
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "FI",
+  "country_name": "Finland",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.40205136,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

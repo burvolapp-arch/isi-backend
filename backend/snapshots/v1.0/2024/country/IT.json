@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "mildly_concentrated",
+      "score": 0.18753526
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.30781423
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "unconcentrated",
+      "score": 0.14103384
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "highly_concentrated",
+      "score": 0.92057651
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "mildly_concentrated",
+      "score": 0.20839534
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.47781001
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "IT",
+  "country_name": "Italy",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.37386086,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

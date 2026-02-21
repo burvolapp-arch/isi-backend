@@ -1,0 +1,176 @@
+{
+  "axis_id": 4,
+  "axis_slug": "defense",
+  "countries": [
+    {
+      "classification": "highly_concentrated",
+      "country": "MT",
+      "country_name": "Malta",
+      "score": 1.0
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "NL",
+      "country_name": "Netherlands",
+      "score": 0.95955396
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "IT",
+      "country_name": "Italy",
+      "score": 0.92057651
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "SE",
+      "country_name": "Sweden",
+      "score": 0.88107943
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "BG",
+      "country_name": "Bulgaria",
+      "score": 0.86064518
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "CY",
+      "country_name": "Cyprus",
+      "score": 0.74847998
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "HR",
+      "country_name": "Croatia",
+      "score": 0.74648317
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "DK",
+      "country_name": "Denmark",
+      "score": 0.72368274
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "SI",
+      "country_name": "Slovenia",
+      "score": 0.66661871
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "LU",
+      "country_name": "Luxembourg",
+      "score": 0.64483831
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "AT",
+      "country_name": "Austria",
+      "score": 0.58506379
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "DE",
+      "country_name": "Germany",
+      "score": 0.58266751
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "RO",
+      "country_name": "Romania",
+      "score": 0.56353195
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "EL",
+      "country_name": "Greece",
+      "score": 0.55148593
+    },
+    {
+      "classification": "highly_concentrated",
+      "country": "HU",
+      "country_name": "Hungary",
+      "score": 0.54471981
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "CZ",
+      "country_name": "Czechia",
+      "score": 0.48413737
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "IE",
+      "country_name": "Ireland",
+      "score": 0.4488746
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "BE",
+      "country_name": "Belgium",
+      "score": 0.44734854
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "PL",
+      "country_name": "Poland",
+      "score": 0.44326493
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "PT",
+      "country_name": "Portugal",
+      "score": 0.43376254
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "LT",
+      "country_name": "Lithuania",
+      "score": 0.40227798
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "FI",
+      "country_name": "Finland",
+      "score": 0.38964518
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "ES",
+      "country_name": "Spain",
+      "score": 0.38088569
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "FR",
+      "country_name": "France",
+      "score": 0.37034617
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "EE",
+      "country_name": "Estonia",
+      "score": 0.35561474
+    },
+    {
+      "classification": "moderately_concentrated",
+      "country": "LV",
+      "country_name": "Latvia",
+      "score": 0.34079636
+    },
+    {
+      "classification": "unconcentrated",
+      "country": "SK",
+      "country_name": "Slovakia",
+      "score": 0.0
+    }
+  ],
+  "countries_scored": 27,
+  "statistics": {
+    "max": 1.0,
+    "mean": 0.5731993,
+    "min": 0.0
+  },
+  "version": "v1.0",
+  "year": 2024
+}

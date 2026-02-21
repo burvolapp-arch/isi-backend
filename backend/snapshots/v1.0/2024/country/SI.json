@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "unconcentrated",
+      "score": 0.11917574
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.40540014
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "moderately_concentrated",
+      "score": 0.35739912
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "highly_concentrated",
+      "score": 0.66661871
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "mildly_concentrated",
+      "score": 0.22301125
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "moderately_concentrated",
+      "score": 0.44714621
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "SI",
+  "country_name": "Slovenia",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.36979186,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}

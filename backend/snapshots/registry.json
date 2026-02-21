@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "latest": "v1.0",
+  "methodologies": [
+    {
+      "methodology_version": "v1.0",
+      "label": "ISI Baseline Methodology — Unweighted HHI Mean",
+      "frozen_at": "2026-02-21T00:00:00+00:00",
+      "latest_year": 2024,
+      "years_available": [2024],
+      "aggregation_rule": "unweighted_arithmetic_mean",
+      "aggregation_formula": "ISI_i = (A1 + A2 + A3 + A4 + A5 + A6) / 6",
+      "axis_count": 6,
+      "axis_slugs": [
+        "critical_inputs",
+        "defense",
+        "energy",
+        "financial",
+        "logistics",
+        "technology"
+      ],
+      "axis_weights": {
+        "critical_inputs": 1.0,
+        "defense": 1.0,
+        "energy": 1.0,
+        "financial": 1.0,
+        "logistics": 1.0,
+        "technology": 1.0
+      },
+      "classification_thresholds": [
+        [0.50, "highly_concentrated"],
+        [0.25, "moderately_concentrated"],
+        [0.15, "mildly_concentrated"]
+      ],
+      "default_classification": "unconcentrated",
+      "score_range": [0.0, 1.0],
+      "round_precision": 8,
+      "notes": "Initial methodology. All axes equally weighted. Unweighted arithmetic mean of 6 HHI-based axis scores."
+    }
+  ]
+}

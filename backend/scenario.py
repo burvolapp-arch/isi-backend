@@ -53,6 +53,41 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# ---------------------------------------------------------------------------
+# Imports from single-source-of-truth modules
+# ---------------------------------------------------------------------------
+
+from backend.constants import (  # noqa: E402
+    CANONICAL_AXIS_KEYS,
+    CANONICAL_TO_ISI_KEY,
+    EU27_CODES,
+    ISI_AXIS_KEYS,
+    ISI_KEY_TO_CANONICAL,
+    MAX_ADJUSTMENT,
+    NUM_AXES,
+    ROUND_PRECISION,
+    SCENARIO_VERSION,
+    VALID_CANONICAL_KEYS,
+)
+
+from backend.methodology import (  # noqa: E402
+    classify,
+    compute_composite,
+    get_classification_thresholds,
+    get_default_classification,
+)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible aliases for test imports
+# ---------------------------------------------------------------------------
+
+_CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = get_classification_thresholds()
+_CLASSIFICATION_DEFAULT: str = get_default_classification()
+VALID_CLASSIFICATIONS: frozenset[str] = frozenset(
+    [label for _, label in _CLASSIFICATION_THRESHOLDS] + [_CLASSIFICATION_DEFAULT]
+)
+
 
 # ---------------------------------------------------------------------------
 # Debug trace — controlled by SCENARIO_DEBUG=1 environment variable
@@ -71,70 +106,6 @@ def _trace(msg: str) -> None:
     """Emit a structured debug trace line when SCENARIO_DEBUG=1."""
     if SCENARIO_DEBUG:
         _logger.debug(msg)
-
-
-# ---------------------------------------------------------------------------
-# Constants — single source of truth
-# ---------------------------------------------------------------------------
-
-NUM_AXES = 6
-MAX_ADJUSTMENT = 0.20
-SCENARIO_VERSION = "scenario-v1"
-
-# Classification thresholds — MUST match export_isi_backend_v01.classify_score()
-# Based on standard HHI interpretation: ≥0.50 highly, ≥0.25 moderately, ≥0.15 mildly
-_CLASSIFICATION_THRESHOLDS: list[tuple[float, str]] = [
-    (0.50, "highly_concentrated"),
-    (0.25, "moderately_concentrated"),
-    (0.15, "mildly_concentrated"),
-]
-_CLASSIFICATION_DEFAULT = "unconcentrated"
-VALID_CLASSIFICATIONS: frozenset[str] = frozenset(
-    [label for _, label in _CLASSIFICATION_THRESHOLDS] + [_CLASSIFICATION_DEFAULT]
-)
-
-# Canonical long-form axis keys — these are the keys the frontend sends.
-CANONICAL_AXIS_KEYS: tuple[str, ...] = (
-    "financial_external_supplier_concentration",
-    "energy_external_supplier_concentration",
-    "technology_semiconductor_external_supplier_concentration",
-    "defense_external_supplier_concentration",
-    "critical_inputs_raw_materials_external_supplier_concentration",
-    "logistics_freight_external_supplier_concentration",
-)
-
-# Set of valid canonical keys (for input validation)
-VALID_CANONICAL_KEYS: frozenset[str] = frozenset(CANONICAL_AXIS_KEYS)
-
-# Canonical key → isi.json internal key
-CANONICAL_TO_ISI_KEY: dict[str, str] = {
-    "financial_external_supplier_concentration": "axis_1_financial",
-    "energy_external_supplier_concentration": "axis_2_energy",
-    "technology_semiconductor_external_supplier_concentration": "axis_3_technology",
-    "defense_external_supplier_concentration": "axis_4_defense",
-    "critical_inputs_raw_materials_external_supplier_concentration": "axis_5_critical_inputs",
-    "logistics_freight_external_supplier_concentration": "axis_6_logistics",
-}
-
-# The 6 isi.json keys, in canonical order
-ISI_AXIS_KEYS: tuple[str, ...] = (
-    "axis_1_financial",
-    "axis_2_energy",
-    "axis_3_technology",
-    "axis_4_defense",
-    "axis_5_critical_inputs",
-    "axis_6_logistics",
-)
-
-# Reverse: isi.json key → canonical key
-ISI_KEY_TO_CANONICAL: dict[str, str] = {v: k for k, v in CANONICAL_TO_ISI_KEY.items()}
-
-# EU-27 country codes
-EU27_CODES: frozenset[str] = frozenset([
-    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES",
-    "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
-    "NL", "PL", "PT", "RO", "SE", "SI", "SK",
-])
 
 
 # ---------------------------------------------------------------------------
@@ -270,15 +241,11 @@ class ScenarioResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Pure computation — same functions used by baseline endpoints
+# Pure computation — scenario-specific helpers
 # ---------------------------------------------------------------------------
 
-def classify(composite: float) -> str:
-    """Classify a composite score. Same logic as baseline."""
-    for threshold, label in _CLASSIFICATION_THRESHOLDS:
-        if composite >= threshold:
-            return label
-    return _CLASSIFICATION_DEFAULT
+# classify() and compute_composite() are imported from backend.methodology
+# — the single source of truth. No local duplicates.
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
@@ -286,15 +253,6 @@ def clamp(value: float, lo: float, hi: float) -> float:
     if math.isnan(value) or math.isinf(value):
         return lo
     return max(lo, min(hi, value))
-
-
-def compute_composite(axis_values: dict[str, float]) -> float:
-    """ISI composite = unweighted arithmetic mean of 6 axis scores.
-
-    Same formula as baseline: ISI_i = (A1 + A2 + A3 + A4 + A5 + A6) / 6
-    """
-    total = sum(axis_values[k] for k in ISI_AXIS_KEYS)
-    return clamp(total / NUM_AXES, 0.0, 1.0)
 
 
 def compute_rank(
@@ -386,13 +344,13 @@ def simulate(
         baseline_isi_axes[isi_key] = baseline_val
         simulated_isi_axes[isi_key] = simulated_val
 
-        baseline_canonical[canonical_key] = round(baseline_val, 10)
-        simulated_canonical[canonical_key] = round(simulated_val, 10)
-        delta_canonical[canonical_key] = round(simulated_val - baseline_val, 10)
+        baseline_canonical[canonical_key] = round(baseline_val, ROUND_PRECISION)
+        simulated_canonical[canonical_key] = round(simulated_val, ROUND_PRECISION)
+        delta_canonical[canonical_key] = round(simulated_val - baseline_val, ROUND_PRECISION)
 
-    # Compute composites
-    baseline_composite = compute_composite(baseline_isi_axes)
-    simulated_composite = compute_composite(simulated_isi_axes)
+    # Compute composites via methodology module (single source of truth)
+    baseline_composite = clamp(compute_composite(baseline_isi_axes), 0.0, 1.0)
+    simulated_composite = clamp(compute_composite(simulated_isi_axes), 0.0, 1.0)
 
     _trace(f"  composite: baseline={baseline_composite:.10f} simulated={simulated_composite:.10f}")
 
@@ -411,19 +369,19 @@ def simulate(
     return ScenarioResponse(
         country=country_code,
         baseline=BaselineBlock(
-            composite=round(baseline_composite, 10),
+            composite=round(baseline_composite, ROUND_PRECISION),
             rank=baseline_rank,
             classification=baseline_classification,
             axes=AxisScores(**baseline_canonical),
         ),
         simulated=SimulatedBlock(
-            composite=round(simulated_composite, 10),
+            composite=round(simulated_composite, ROUND_PRECISION),
             rank=simulated_rank,
             classification=simulated_classification,
             axes=AxisScores(**simulated_canonical),
         ),
         delta=DeltaBlock(
-            composite=round(simulated_composite - baseline_composite, 10),
+            composite=round(simulated_composite - baseline_composite, ROUND_PRECISION),
             rank=simulated_rank - baseline_rank,
             axes=AxisDeltas(**delta_canonical),
         ),

@@ -1,0 +1,49 @@
+{
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "classification": "mildly_concentrated",
+      "score": 0.20078311
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "classification": "moderately_concentrated",
+      "score": 0.33541623
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "classification": "mildly_concentrated",
+      "score": 0.16272142
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "classification": "highly_concentrated",
+      "score": 0.55148593
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "classification": "mildly_concentrated",
+      "score": 0.22200621
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "classification": "highly_concentrated",
+      "score": 0.71982808
+    }
+  ],
+  "axes_available": 6,
+  "axes_required": 6,
+  "country": "EL",
+  "country_name": "Greece",
+  "isi_classification": "moderately_concentrated",
+  "isi_composite": 0.3653735,
+  "version": "v1.0",
+  "window": "2022–2024",
+  "year": 2024
+}
