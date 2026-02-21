@@ -64,21 +64,34 @@ def _artifact_to_path(snapshot_dir: Path, artifact: str) -> Path:
         "manifest"      → MANIFEST.json
 
     Raises ValueError for unrecognised artifact keys.
+    Raises ValueError if resolved path escapes the snapshot directory
+    (path traversal guard).
     """
     if artifact == "isi":
-        return snapshot_dir / "isi.json"
-    if artifact == "hash_summary":
-        return snapshot_dir / "HASH_SUMMARY.json"
-    if artifact == "manifest":
-        return snapshot_dir / "MANIFEST.json"
-    if artifact.startswith("country:"):
+        resolved = snapshot_dir / "isi.json"
+    elif artifact == "hash_summary":
+        resolved = snapshot_dir / "HASH_SUMMARY.json"
+    elif artifact == "manifest":
+        resolved = snapshot_dir / "MANIFEST.json"
+    elif artifact.startswith("country:"):
         code = artifact[8:]  # len("country:") == 8
-        return snapshot_dir / "country" / f"{code}.json"
-    if artifact.startswith("axis:"):
+        resolved = snapshot_dir / "country" / f"{code}.json"
+    elif artifact.startswith("axis:"):
         axis_id = artifact[5:]  # len("axis:") == 5
-        return snapshot_dir / "axis" / f"{axis_id}.json"
+        resolved = snapshot_dir / "axis" / f"{axis_id}.json"
+    else:
+        raise ValueError(f"Unknown artifact key: '{artifact}'")
 
-    raise ValueError(f"Unknown artifact key: '{artifact}'")
+    # Path traversal guard: resolved path must stay within snapshot_dir.
+    try:
+        resolved.resolve().relative_to(snapshot_dir.resolve())
+    except ValueError:
+        raise ValueError(
+            f"Path traversal detected: artifact '{artifact}' resolves to "
+            f"{resolved.resolve()}, which is outside {snapshot_dir.resolve()}."
+        )
+
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +146,21 @@ class SnapshotCache:
             This means two threads may both attempt to load the same file
             concurrently. The last writer wins, but since snapshot data is
             immutable and deterministic, both will produce identical results.
+
+        Defensive checks:
+            - methodology_version and year must be non-empty / positive.
+            - Artifact path must stay within snapshot_dir (no traversal).
+            - Eviction is atomic at snapshot-level (entire slot removed).
         """
+        # --- Defensive assertions ---
+        if not methodology_version or not isinstance(methodology_version, str):
+            raise ValueError(
+                f"methodology_version must be a non-empty string, "
+                f"got {methodology_version!r}"
+            )
+        if not isinstance(year, int) or year <= 0:
+            raise ValueError(f"year must be a positive integer, got {year!r}")
+
         slot_key = (methodology_version, year)
 
         with self._lock:
@@ -146,17 +173,20 @@ class SnapshotCache:
                 slot = None
 
         # Load from disk (outside lock)
+        # _artifact_to_path includes path traversal guard
         filepath = _artifact_to_path(snapshot_dir, artifact)
         data = self._load_json(filepath)
 
         with self._lock:
             if slot_key not in self._slots:
-                # New snapshot slot — check bounds
+                # New snapshot slot — atomic eviction of entire oldest slot
                 while len(self._slots) >= self._max:
-                    evicted_key, _ = self._slots.popitem(last=False)
+                    evicted_key, evicted_slot = self._slots.popitem(last=False)
+                    artifact_count = len(evicted_slot)
+                    evicted_slot.clear()  # Explicit clear — no partial retention
                     logger.info(
-                        "Cache eviction: %s/%s (max_snapshots=%d)",
-                        evicted_key[0], evicted_key[1], self._max,
+                        "Cache eviction: %s/%s (%d artifacts, max_snapshots=%d)",
+                        evicted_key[0], evicted_key[1], artifact_count, self._max,
                     )
                 self._slots[slot_key] = {}
 

@@ -1178,6 +1178,44 @@ async def country_history(
 
 
 # ---------------------------------------------------------------------------
+# Internal verification endpoint (dev/audit only)
+# ---------------------------------------------------------------------------
+
+_ENABLE_INTERNAL_VERIFY = os.getenv("ENABLE_INTERNAL_VERIFY", "").strip() == "1"
+
+if _ENABLE_INTERNAL_VERIFY:
+    from backend.snapshot_integrity import validate_snapshot as _validate_snapshot
+
+    @app.get("/_internal/snapshot/verify", include_in_schema=False)
+    @limiter.limit("10/minute")
+    async def internal_snapshot_verify(
+        request: Request,
+        methodology: str = "v1.0",
+        year: int = 2024,
+    ) -> JSONResponse:
+        """Internal snapshot integrity verification endpoint.
+
+        Enabled only when ENABLE_INTERNAL_VERIFY=1.
+        Returns full structured integrity report.
+        Never exposed in production unless flag is explicitly set.
+        """
+        from backend.snapshot_resolver import SNAPSHOTS_ROOT as _sr
+
+        snapshot_dir = _sr / methodology / str(year)
+        report = _validate_snapshot(
+            snapshot_dir=snapshot_dir,
+            methodology_version=methodology,
+            year=year,
+        )
+
+        status_code = 200 if report.valid else 422
+        return JSONResponse(
+            status_code=status_code,
+            content=report.to_dict(),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Entry point (development only)
 # ---------------------------------------------------------------------------
 

@@ -16,6 +16,8 @@ Design contract:
 from __future__ import annotations
 
 import json
+import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,11 +27,27 @@ from backend.methodology import (
     get_years_available,
 )
 
+logger = logging.getLogger("isi.resolver")
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 SNAPSHOTS_ROOT: Path = Path(__file__).resolve().parent / "snapshots"
+
+# ---------------------------------------------------------------------------
+# Strict validation — opt-in via environment variable
+# ---------------------------------------------------------------------------
+
+STRICT_VALIDATION: bool = os.getenv("SNAPSHOT_STRICT_VALIDATION", "").strip() == "1"
+"""When enabled, resolve_snapshot() runs full integrity validation
+via snapshot_integrity.validate_snapshot() before returning a context.
+If validation fails, SnapshotNotFoundError is raised and the snapshot
+is never served. Off by default — enable for staging/audit environments."""
+
+# Cache of already-validated snapshot directories (strict mode only).
+# Once a snapshot passes validation, it is not re-validated until restart.
+_validated_snapshots: set[tuple[str, int]] = set()
 
 # ---------------------------------------------------------------------------
 # SnapshotContext — immutable value object
@@ -148,6 +166,11 @@ def resolve_snapshot(
         isi_meta = json.load(fh)
     data_window = isi_meta.get("window", "")
 
+    # Strict validation gate — runs full integrity check when enabled.
+    # Cached per (methodology, year) so subsequent calls are free.
+    if STRICT_VALIDATION:
+        _strict_validate(snapshot_dir, methodology, year)
+
     return SnapshotContext(
         methodology_version=methodology,
         year=year,
@@ -155,6 +178,41 @@ def resolve_snapshot(
         data_window=data_window,
         snapshot_hash=snapshot_hash,
     )
+
+
+def _strict_validate(
+    snapshot_dir: Path,
+    methodology: str,
+    year: int,
+) -> None:
+    """Run full integrity validation in strict mode.
+
+    Called only when SNAPSHOT_STRICT_VALIDATION=1.
+    Results are cached per (methodology, year) to avoid repeated I/O.
+    """
+    key = (methodology, year)
+    if key in _validated_snapshots:
+        return
+
+    # Lazy import to avoid circular dependency at module load time
+    from backend.snapshot_integrity import validate_snapshot
+
+    report = validate_snapshot(snapshot_dir, methodology, year)
+    if report.valid:
+        _validated_snapshots.add(key)
+        logger.info(
+            "Strict validation passed: %s/%s (%d checks)",
+            methodology, year, len(report.checks),
+        )
+    else:
+        raise SnapshotNotFoundError(
+            methodology_version=methodology,
+            year=year,
+            detail=(
+                f"Strict validation failed for {methodology}/{year}: "
+                f"{report.errors}"
+            ),
+        )
 
 
 def list_available_snapshots() -> list[dict]:
