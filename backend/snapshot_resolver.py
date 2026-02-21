@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +35,19 @@ logger = logging.getLogger("isi.resolver")
 # ---------------------------------------------------------------------------
 
 SNAPSHOTS_ROOT: Path = Path(__file__).resolve().parent / "snapshots"
+
+# ---------------------------------------------------------------------------
+# Input allowlists — reject adversarial inputs before filesystem access
+# ---------------------------------------------------------------------------
+
+METHODOLOGY_RE: re.Pattern[str] = re.compile(r"^v[0-9]{1,10}\.[0-9]{1,10}\Z")
+"""Methodology version must match ``^v[0-9]{1,10}\\.[0-9]{1,10}\\Z`` exactly.
+Rejects traversal, unicode, spaces, and any non-standard format."""
+
+MIN_VALID_YEAR: int = 2000
+MAX_VALID_YEAR: int = 2100
+"""Year sanity bounds — rejects negative, zero, and far-future values
+before consulting the registry."""
 
 # ---------------------------------------------------------------------------
 # Strict validation — opt-in via environment variable
@@ -115,6 +129,29 @@ def resolve_snapshot(
 
     if year is None:
         year = get_latest_year()
+
+    # ---- Strict input allowlists ----
+    # Methodology regex: blocks traversal, unicode, spaces
+    if not METHODOLOGY_RE.match(methodology):
+        raise SnapshotNotFoundError(
+            methodology_version=methodology,
+            year=year,
+            detail=(
+                f"Invalid methodology version format: '{methodology}'. "
+                f"Must match {METHODOLOGY_RE.pattern}."
+            ),
+        )
+
+    # Year sanity bounds: reject obviously invalid values
+    if not (MIN_VALID_YEAR <= year <= MAX_VALID_YEAR):
+        raise SnapshotNotFoundError(
+            methodology_version=methodology,
+            year=year,
+            detail=(
+                f"Year {year} is outside valid range "
+                f"[{MIN_VALID_YEAR}, {MAX_VALID_YEAR}]."
+            ),
+        )
 
     # Validate year is in registry's available years
     available = get_years_available(methodology)

@@ -1,0 +1,154 @@
+name: CI — tests, integrity, reproducibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests + Integrity
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install pytest
+
+      - name: Ruff lint
+        run: ruff check backend/
+
+      - name: Bandit security scan
+        run: bandit -r backend/ -c pyproject.toml
+
+      - name: pip-audit dependency scan
+        run: pip-audit -r requirements.txt
+
+      - name: Import test
+        run: python -c "from backend.isi_api_v01 import app; print('import_ok')"
+
+      # ────────────────────────────────────────────────────────
+      # Full test suite — all tests must pass, zero tolerance
+      # ────────────────────────────────────────────────────────
+      - name: Run full test suite
+        run: python -m pytest tests/ -v --tb=short
+
+      # ────────────────────────────────────────────────────────
+      # Snapshot integrity verification — CI-grade
+      # Verifies committed snapshots against their own hashes.
+      # Exit code != 0 → CI fails → no merge.
+      # ────────────────────────────────────────────────────────
+      - name: Verify snapshot integrity (v1.0/2024)
+        run: |
+          python -m backend.verify_snapshot \
+            --methodology v1.0 --year 2024 --json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      # ────────────────────────────────────────────────────────
+      # Determinism check: verify all snapshot JSON files are
+      # in canonical sorted-key format (re-serialize and diff).
+      # Catches platform drift, encoding issues, and accidental
+      # mutations of committed snapshot artifacts.
+      # ────────────────────────────────────────────────────────
+      - name: Canonical JSON determinism check
+        run: |
+          python -c "
+          import json, sys
+          from pathlib import Path
+
+          snapshot_dir = Path('backend/snapshots/v1.0/2024')
+          failures = []
+
+          for f in sorted(snapshot_dir.rglob('*.json')):
+              with open(f, encoding='utf-8') as fh:
+                  raw = fh.read()
+              data = json.loads(raw)
+              canonical = json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + '\n'
+              if raw != canonical:
+                  failures.append(str(f.relative_to(snapshot_dir)))
+
+          if failures:
+              print(f'FAIL: {len(failures)} files not in canonical format:')
+              for f in failures:
+                  print(f'  - {f}')
+              sys.exit(1)
+          else:
+              print(f'OK: All JSON files in canonical sorted-key format.')
+          "
+
+      # ────────────────────────────────────────────────────────
+      # MANIFEST.json SHA-256 byte-level verification.
+      # Independent of verify_snapshot — catches file corruption.
+      # ────────────────────────────────────────────────────────
+      - name: MANIFEST SHA-256 verification
+        run: |
+          python -c "
+          import hashlib, json, sys
+          from pathlib import Path
+
+          snapshot_dir = Path('backend/snapshots/v1.0/2024')
+          manifest_path = snapshot_dir / 'MANIFEST.json'
+          if not manifest_path.is_file():
+              print('FAIL: MANIFEST.json not found')
+              sys.exit(1)
+
+          with open(manifest_path) as fh:
+              manifest = json.load(fh)
+
+          mismatches = []
+          for entry in manifest['files']:
+              path = snapshot_dir / entry['path']
+              if not path.is_file():
+                  mismatches.append(f'MISSING: {entry[\"path\"]}')
+                  continue
+              h = hashlib.sha256(path.read_bytes()).hexdigest()
+              if h != entry['sha256']:
+                  mismatches.append(f'MISMATCH: {entry[\"path\"]}')
+
+          if mismatches:
+              print(f'FAIL: {len(mismatches)} integrity errors:')
+              for m in mismatches:
+                  print(f'  {m}')
+              sys.exit(1)
+          print(f'OK: {len(manifest[\"files\"])} files verified against MANIFEST.json')
+          "
+
+      # ────────────────────────────────────────────────────────
+      # HASH_SUMMARY snapshot hash verification.
+      # Proves the committed snapshot_hash matches recomputation.
+      # ────────────────────────────────────────────────────────
+      - name: HASH_SUMMARY snapshot hash verification
+        run: |
+          python -c "
+          import json, sys
+          from pathlib import Path
+          from backend.snapshot_integrity import validate_snapshot
+
+          snapshot_dir = Path('backend/snapshots/v1.0/2024')
+          report = validate_snapshot(snapshot_dir, 'v1.0', 2024)
+
+          if not report.valid:
+              print(f'FAIL: Snapshot validation failed:')
+              for err in report.errors:
+                  print(f'  {err}')
+              sys.exit(report.exit_code)
+
+          print(f'OK: All {len(report.checks)} integrity checks passed.')
+          "

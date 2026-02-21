@@ -196,7 +196,7 @@ class TestSnapshotCache:
         assert cache.snapshot_count == 1
 
         # Simulate a different snapshot key (same path, different key)
-        cache.get_artifact("v0.0-test", 2020, "isi", ctx.path)
+        cache.get_artifact("v0.0", 2020, "isi", ctx.path)
         assert cache.snapshot_count == 1  # Evicted the first
 
     def test_invalidate_specific_slot(self, fresh_cache: SnapshotCache):

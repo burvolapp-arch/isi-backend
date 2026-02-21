@@ -216,19 +216,19 @@ class TestCacheHardening:
             )
 
     def test_country_code_traversal_blocked(self, ctx: SnapshotContext):
-        """Country artifact with path traversal in code is caught."""
+        """Country artifact with path traversal in code is caught by allowlist."""
         cache = SnapshotCache(max_snapshots=1)
-        # country:../../etc/passwd → should resolve outside snapshot_dir
-        with pytest.raises(ValueError, match="Path traversal detected"):
+        # country:../../etc/passwd → blocked by country code regex before path construction
+        with pytest.raises(ValueError, match="Invalid country code"):
             cache.get_artifact(
                 ctx.methodology_version, ctx.year,
                 "country:../../etc/passwd", ctx.path,
             )
 
     def test_axis_traversal_blocked(self, ctx: SnapshotContext):
-        """Axis artifact with path traversal is caught."""
+        """Axis artifact with path traversal is caught by allowlist."""
         cache = SnapshotCache(max_snapshots=1)
-        with pytest.raises(ValueError, match="Path traversal detected"):
+        with pytest.raises(ValueError, match="Invalid axis ID"):
             cache.get_artifact(
                 ctx.methodology_version, ctx.year,
                 "axis:../../etc/passwd", ctx.path,
@@ -263,11 +263,11 @@ class TestCacheHardening:
         assert stats_before["slots"][0]["artifacts_cached"] == 2
 
         # Force eviction by loading a different snapshot key
-        cache.get_artifact("v0.0-test", 2020, "isi", ctx.path)
+        cache.get_artifact("v0.0", 2020, "isi", ctx.path)
         assert cache.snapshot_count == 1
         # The old slot should be completely gone, not partially retained
         stats_after = cache.stats
-        assert stats_after["slots"][0]["methodology_version"] == "v0.0-test"
+        assert stats_after["slots"][0]["methodology_version"] == "v0.0"
         assert stats_after["slots"][0]["year"] == 2020
 
     def test_concurrent_access_safe(self, ctx: SnapshotContext):
@@ -311,7 +311,7 @@ class TestCacheHardening:
                 )
             else:
                 data = cache.get_artifact(
-                    "v0.0-alt", 2020, "isi", ctx.path,
+                    "v0.1", 2020, "isi", ctx.path,
                 )
             assert data is not None
         assert cache.snapshot_count == 2

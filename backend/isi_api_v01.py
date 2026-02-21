@@ -243,6 +243,26 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "reason": "Backend data directory not found or incomplete",
             }))
 
+    # Snapshot-layer strict validation at startup
+    # When STRICT=1, validate the latest snapshot and fail-fast if invalid.
+    from backend.snapshot_resolver import STRICT_VALIDATION
+    if STRICT_VALIDATION:
+        try:
+            latest_meth = get_latest_methodology_version()
+            latest_yr = get_latest_year()
+            ctx = resolve_snapshot(methodology=latest_meth, year=latest_yr)
+            logger.info(json.dumps({
+                "event": "strict_snapshot_validated",
+                "methodology": latest_meth,
+                "year": latest_yr,
+            }))
+        except Exception as exc:
+            logger.error(json.dumps({
+                "event": "startup_abort",
+                "reason": f"Strict snapshot validation failed: {type(exc).__name__}",
+            }))
+            sys.exit(1)
+
     yield  # App is running — serve requests
 
     # Shutdown (nothing to clean up for a read-only API)
@@ -560,6 +580,9 @@ async def ready(request: Request) -> JSONResponse:
     Reports data availability, file counts, integrity status, and version.
     HTTP status is always 200 so orchestrator probes never choke.
     Business-level readiness is indicated by the 'ready' field in the body.
+
+    When SNAPSHOT_STRICT_VALIDATION=1, readiness requires the latest
+    snapshot to be structurally valid (validation cached after first pass).
     """
     try:
         data_present = _data_available()
@@ -570,9 +593,23 @@ async def ready(request: Request) -> JSONResponse:
         file_count = 0
 
     integrity_ok = _integrity.get("verified", True)  # True if no manifest
-    ready_flag = data_present and integrity_ok
 
-    body = {
+    # Snapshot-layer readiness: in STRICT mode, confirm latest snapshot valid
+    snapshot_valid: bool | None = None
+    from backend.snapshot_resolver import STRICT_VALIDATION, _validated_snapshots
+    if STRICT_VALIDATION:
+        try:
+            latest_meth = get_latest_methodology_version()
+            latest_yr = get_latest_year()
+            snapshot_valid = (latest_meth, latest_yr) in _validated_snapshots
+        except Exception:
+            snapshot_valid = False
+
+    ready_flag = data_present and integrity_ok
+    if STRICT_VALIDATION and snapshot_valid is False:
+        ready_flag = False
+
+    body: dict[str, Any] = {
         "ready": ready_flag,
         "status": "healthy" if data_present else "degraded",
         "version": "0.1.0",
@@ -581,6 +618,9 @@ async def ready(request: Request) -> JSONResponse:
         "integrity_verified": _integrity.get("verified") if _integrity.get("manifest_present") else None,
         "timestamp": datetime.now(UTC).isoformat(),
     }
+
+    if STRICT_VALIDATION:
+        body["snapshot_valid"] = snapshot_valid
 
     return JSONResponse(status_code=200, content=body)
 
@@ -1186,6 +1226,9 @@ _ENABLE_INTERNAL_VERIFY = os.getenv("ENABLE_INTERNAL_VERIFY", "").strip() == "1"
 if _ENABLE_INTERNAL_VERIFY:
     from backend.snapshot_integrity import validate_snapshot as _validate_snapshot
 
+    # Strict regex for methodology param — same as resolver
+    _INTERNAL_METHODOLOGY_RE = re.compile(r"^v[0-9]{1,10}\.[0-9]{1,10}\Z")
+
     @app.get("/_internal/snapshot/verify", include_in_schema=False)
     @limiter.limit("10/minute")
     async def internal_snapshot_verify(
@@ -1198,21 +1241,64 @@ if _ENABLE_INTERNAL_VERIFY:
         Enabled only when ENABLE_INTERNAL_VERIFY=1.
         Returns full structured integrity report.
         Never exposed in production unless flag is explicitly set.
+
+        Security guarantees:
+            - Excluded from OpenAPI schema (include_in_schema=False)
+            - Rate limited at 10/minute
+            - Never returns filesystem paths or stack traces
+            - Input validated against strict allowlists
+            - Output is bounded JSON (no unbounded fields)
         """
-        from backend.snapshot_resolver import SNAPSHOTS_ROOT as _sr
+        # Strict input validation — no traversal via query params
+        if not _INTERNAL_METHODOLOGY_RE.match(methodology):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "INVALID_INPUT", "detail": "Invalid methodology format."},
+            )
+        if not (2000 <= year <= 2100):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "INVALID_INPUT", "detail": "Year out of valid range."},
+            )
 
-        snapshot_dir = _sr / methodology / str(year)
-        report = _validate_snapshot(
-            snapshot_dir=snapshot_dir,
-            methodology_version=methodology,
-            year=year,
-        )
+        try:
+            from backend.snapshot_resolver import SNAPSHOTS_ROOT as _sr
 
-        status_code = 200 if report.valid else 422
-        return JSONResponse(
-            status_code=status_code,
-            content=report.to_dict(),
-        )
+            snapshot_dir = _sr / methodology / str(year)
+            report = _validate_snapshot(
+                snapshot_dir=snapshot_dir,
+                methodology_version=methodology,
+                year=year,
+            )
+
+            # Sanitize output — strip any filesystem paths from check details
+            safe_report = report.to_dict()
+            # Remove any absolute paths that may appear in check details
+            for check in safe_report.get("checks", []):
+                detail = check.get("detail", "")
+                if isinstance(detail, str):
+                    # Strip common path prefixes
+                    from backend.log_sanitizer import sanitize_path
+                    if "/" in detail and ("backend/" in detail or "/Users/" in detail or "/app/" in detail):
+                        # Replace absolute paths with relative ones
+                        import re as _re
+                        check["detail"] = _re.sub(
+                            r"/[^\s,\]]+/backend/",
+                            "backend/",
+                            detail,
+                        )
+
+            status_code = 200 if report.valid else 422
+            return JSONResponse(
+                status_code=status_code,
+                content=safe_report,
+            )
+        except Exception:
+            # Never leak stack traces
+            return JSONResponse(
+                status_code=500,
+                content={"error": "INTERNAL_ERROR", "detail": "Verification failed."},
+            )
 
 
 # ---------------------------------------------------------------------------

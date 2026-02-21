@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -47,6 +48,23 @@ logger = logging.getLogger("isi.cache")
 MAX_CACHED_SNAPSHOTS: int = int(os.getenv("MAX_CACHED_SNAPSHOTS", "3"))
 """Maximum number of (methodology, year) snapshot slots held in memory.
 Controlled by MAX_CACHED_SNAPSHOTS env var. Default: 3."""
+
+MAX_ARTIFACTS_PER_SNAPSHOT: int = 50
+"""Hard cap on artifacts per snapshot slot. 36 expected (isi + manifest +
+hash_summary + 6 axes + 27 countries) — 50 gives safe headroom.
+Prevents unbounded memory growth from malformed artifact keys."""
+
+# Strict allowlist regex for methodology version strings.
+# Only vN.M format accepted — no traversal, no unicode, no spaces.
+# Uses [0-9] (not \d which matches Unicode digits) with {1,10} length cap.
+METHODOLOGY_RE: re.Pattern[str] = re.compile(r"^v[0-9]{1,10}\.[0-9]{1,10}\Z")
+"""Methodology version must match ``^v[0-9]{1,10}\\.[0-9]{1,10}\\Z`` exactly."""
+
+# Country code allowlist regex (strict ISO 3166-1 alpha-2 uppercase)
+COUNTRY_CODE_RE: re.Pattern[str] = re.compile(r"^[A-Z]{2}$")
+
+# Axis ID allowlist regex (single digit 1-9)
+AXIS_ID_RE: re.Pattern[str] = re.compile(r"^[1-9]$")
 
 
 # ---------------------------------------------------------------------------
@@ -75,9 +93,19 @@ def _artifact_to_path(snapshot_dir: Path, artifact: str) -> Path:
         resolved = snapshot_dir / "MANIFEST.json"
     elif artifact.startswith("country:"):
         code = artifact[8:]  # len("country:") == 8
+        if not COUNTRY_CODE_RE.match(code):
+            raise ValueError(
+                f"Invalid country code in artifact key: '{code}'. "
+                f"Must be exactly 2 uppercase ASCII letters."
+            )
         resolved = snapshot_dir / "country" / f"{code}.json"
     elif artifact.startswith("axis:"):
         axis_id = artifact[5:]  # len("axis:") == 5
+        if not AXIS_ID_RE.match(axis_id):
+            raise ValueError(
+                f"Invalid axis ID in artifact key: '{axis_id}'. "
+                f"Must be a single digit 1-9."
+            )
         resolved = snapshot_dir / "axis" / f"{axis_id}.json"
     else:
         raise ValueError(f"Unknown artifact key: '{artifact}'")
@@ -122,6 +150,8 @@ class SnapshotCache:
         # OrderedDict keyed by (methodology_version, year)
         # Values are dicts mapping artifact → parsed JSON
         self._slots: OrderedDict[tuple[str, int], dict[str, Any]] = OrderedDict()
+        # Pinned mtimes for tamper detection — {slot_key: {artifact: mtime}}
+        self._mtimes: dict[tuple[str, int], dict[str, float]] = {}
 
     def get_artifact(
         self,
@@ -158,6 +188,11 @@ class SnapshotCache:
                 f"methodology_version must be a non-empty string, "
                 f"got {methodology_version!r}"
             )
+        if not METHODOLOGY_RE.match(methodology_version):
+            raise ValueError(
+                f"methodology_version must match {METHODOLOGY_RE.pattern!r}, "
+                f"got {methodology_version!r}"
+            )
         if not isinstance(year, int) or year <= 0:
             raise ValueError(f"year must be a positive integer, got {year!r}")
 
@@ -173,8 +208,11 @@ class SnapshotCache:
                 slot = None
 
         # Load from disk (outside lock)
-        # _artifact_to_path includes path traversal guard
+        # _artifact_to_path includes path traversal guard + allowlist checks
         filepath = _artifact_to_path(snapshot_dir, artifact)
+
+        # Mtime pinning — record file mtime on first load, detect changes
+        file_mtime = filepath.stat().st_mtime if filepath.is_file() else None
         data = self._load_json(filepath)
 
         with self._lock:
@@ -189,11 +227,77 @@ class SnapshotCache:
                         evicted_key[0], evicted_key[1], artifact_count, self._max,
                     )
                 self._slots[slot_key] = {}
+                self._mtimes[slot_key] = {}
+
+            # Artifact count cap — refuse to cache beyond MAX_ARTIFACTS_PER_SNAPSHOT
+            if len(self._slots[slot_key]) >= MAX_ARTIFACTS_PER_SNAPSHOT:
+                logger.warning(
+                    "Artifact count cap reached for %s/%s (%d). "
+                    "Artifact '%s' served but not cached.",
+                    methodology_version, year,
+                    MAX_ARTIFACTS_PER_SNAPSHOT, artifact,
+                )
+                return data
 
             self._slots.move_to_end(slot_key)
             self._slots[slot_key][artifact] = data
 
+            # Pin mtime for tamper detection
+            if slot_key not in self._mtimes:
+                self._mtimes[slot_key] = {}
+            if file_mtime is not None:
+                self._mtimes[slot_key][artifact] = file_mtime
+
         return data
+
+    def check_tamper(
+        self,
+        methodology_version: str,
+        year: int,
+        snapshot_dir: Path,
+    ) -> list[str]:
+        """Check cached artifacts for filesystem tampering.
+
+        Compares pinned mtimes with current filesystem mtimes.
+        Returns list of tampered artifact names (empty = clean).
+
+        If tampering is detected, the entire snapshot slot is
+        atomically invalidated from cache.
+        """
+        slot_key = (methodology_version, year)
+        tampered: list[str] = []
+
+        with self._lock:
+            pinned = self._mtimes.get(slot_key, {})
+            if not pinned:
+                return tampered
+            # Copy to iterate outside lock
+            pinned_copy = dict(pinned)
+
+        for artifact, original_mtime in pinned_copy.items():
+            try:
+                filepath = _artifact_to_path(snapshot_dir, artifact)
+                if not filepath.is_file():
+                    tampered.append(artifact)
+                    continue
+                current_mtime = filepath.stat().st_mtime
+                if current_mtime != original_mtime:
+                    tampered.append(artifact)
+            except (ValueError, OSError):
+                tampered.append(artifact)
+
+        if tampered:
+            # Atomic invalidation — drop entire slot
+            with self._lock:
+                self._slots.pop(slot_key, None)
+                self._mtimes.pop(slot_key, None)
+            logger.warning(
+                "Tamper detected in %s/%s — %d artifacts modified. "
+                "Cache slot invalidated.",
+                methodology_version, year, len(tampered),
+            )
+
+        return tampered
 
     def invalidate(
         self,
@@ -215,11 +319,13 @@ class SnapshotCache:
                 key = (methodology_version, year)
                 if key in self._slots:
                     del self._slots[key]
+                    self._mtimes.pop(key, None)
                     return 1
                 return 0
             else:
                 count = len(self._slots)
                 self._slots.clear()
+                self._mtimes.clear()
                 return count
 
     @property
