@@ -8,8 +8,11 @@
 __pycache__
 *.pyc
 *.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
 
-# Data (raw/processed never deployed; v01 artifacts are in backend/)
+# Data (raw/processed never deployed; snapshot artifacts are in backend/)
 data/
 axis5_raw.tsv
 
@@ -17,6 +20,9 @@ axis5_raw.tsv
 docs
 notebooks
 scripts
+
+# Tests (not needed in production image)
+tests/
 
 # OS artifacts
 .DS_Store
@@ -27,3 +33,5 @@ scripts
 .github
 requirements-dev.txt
 Makefile
+pyproject.toml
+VERSION

@@ -80,17 +80,24 @@ def _artifact_to_path(snapshot_dir: Path, artifact: str) -> Path:
         "axis:{N}"      → axis/{N}.json
         "hash_summary"  → HASH_SUMMARY.json
         "manifest"      → MANIFEST.json
+        "signature"     → SIGNATURE.json
 
     Raises ValueError for unrecognised artifact keys.
     Raises ValueError if resolved path escapes the snapshot directory
     (path traversal guard).
     """
+    # Reject overlong artifact keys (max 64 chars)
+    if len(artifact) > 64:
+        raise ValueError(f"Artifact key too long: {len(artifact)} chars (max 64)")
+
     if artifact == "isi":
         resolved = snapshot_dir / "isi.json"
     elif artifact == "hash_summary":
         resolved = snapshot_dir / "HASH_SUMMARY.json"
     elif artifact == "manifest":
         resolved = snapshot_dir / "MANIFEST.json"
+    elif artifact == "signature":
+        resolved = snapshot_dir / "SIGNATURE.json"
     elif artifact.startswith("country:"):
         code = artifact[8:]  # len("country:") == 8
         if not COUNTRY_CODE_RE.match(code):

@@ -1,0 +1,6 @@
+{
+  "algorithm": "ed25519",
+  "public_key_id": "v1",
+  "signature": "5tj1L4r1HJAuR5gb6UyYgSXsV0HmsAe9th8XltR0f1TlUP3XIUDe7b77mAgVjCftxbvi1AaHVD6iI3QhbZvnDQ==",
+  "signed_hash": "9745dbfd24dc7dc82ec84a3f5815b955a10eaf69440b7ae8097b7c47d542046f"
+}

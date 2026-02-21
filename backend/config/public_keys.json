@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "description": "Ed25519 public keys for ISI snapshot signature verification.",
+  "keys": [
+    {
+      "key_id": "v1",
+      "algorithm": "ed25519",
+      "public_key": "YrL5bMk5WVRSrps10+uNflrZDIGLF0QrnR9Fg5j2v7U=",
+      "added": "2026-02-21",
+      "status": "active",
+      "description": "Initial signing key for ISI snapshot v1.0/2024+"
+    }
+  ]
+}

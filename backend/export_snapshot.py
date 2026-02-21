@@ -59,6 +59,11 @@ from backend.hashing import (
     compute_snapshot_hash,
 )
 from backend.methodology import classify, compute_composite, get_methodology
+from backend.signing import (
+    SIGNATURE_FILENAME,
+    load_private_key,
+    sign_snapshot_hash,
+)
 
 # ---------------------------------------------------------------------------
 # Project paths
@@ -148,6 +153,9 @@ def parse_float(val: str, context: str) -> float:
         fatal(f"Non-numeric value '{val}' in {context}")
     if math.isnan(f) or math.isinf(f):
         fatal(f"NaN/Inf value in {context}")
+    # Reject negative zero — causes JSON non-determinism
+    if f == 0.0 and math.copysign(1.0, f) < 0:
+        f = 0.0  # Normalize -0.0 → 0.0
     return f
 
 
@@ -451,7 +459,7 @@ def generate_manifest(snapshot_dir: Path) -> dict:
     files = []
     for filepath in sorted(snapshot_dir.rglob("*.json")):
         rel = filepath.relative_to(snapshot_dir)
-        if rel.name in ("MANIFEST.json", "HASH_SUMMARY.json"):
+        if rel.name in ("MANIFEST.json", "HASH_SUMMARY.json", SIGNATURE_FILENAME):
             continue
         files.append({
             "path": str(rel),
@@ -513,6 +521,7 @@ def materialize_snapshot(
     methodology_version: str,
     *,
     force: bool = False,
+    no_sign: bool = False,
 ) -> Path:
     """Materialize a complete snapshot atomically.
 
@@ -619,11 +628,29 @@ def materialize_snapshot(
         }
         write_canonical_json(temp_dir / "HASH_SUMMARY.json", hash_summary)
         print(f"  HASH_SUMMARY.json (snapshot_hash={snapshot_hash[:16]}...)")
+
+        # SIGNATURE.json (cryptographic Ed25519 signature)
+        signed = False
+        if not no_sign:
+            signing_key_b64 = os.environ.get("ISI_SIGNING_PRIVATE_KEY", "")
+            if not signing_key_b64:
+                fatal(
+                    "ISI_SIGNING_PRIVATE_KEY not set. "
+                    "Set the environment variable or use --no-sign for development."
+                )
+            private_key = load_private_key(signing_key_b64)
+            sig_data = sign_snapshot_hash(snapshot_hash, private_key, "v1")
+            write_canonical_json(temp_dir / SIGNATURE_FILENAME, sig_data)
+            print(f"  SIGNATURE.json (key=v1, alg=ed25519)")
+            signed = True
+        else:
+            print("  SIGNATURE.json SKIPPED (--no-sign)")
         print()
 
         # ── VERIFY COMPLETENESS ──
         print("Phase 4: Verifying...")
-        expected_files = 1 + len(EU27_SORTED) + NUM_AXES + 1 + 1  # isi + countries + axes + manifest + hash_summary
+        # isi + countries + axes + manifest + hash_summary + (signature if signed)
+        expected_files = 1 + len(EU27_SORTED) + NUM_AXES + 1 + 1 + (1 if signed else 0)
         actual_files = len(list(temp_dir.rglob("*.json")))
         if actual_files != expected_files:
             fatal(f"Expected {expected_files} files, found {actual_files}")
@@ -689,6 +716,7 @@ def main() -> None:
     parser.add_argument("--year", type=int, required=True, help="Reference year (e.g., 2024)")
     parser.add_argument("--methodology", type=str, required=True, help="Methodology version (e.g., v1.0)")
     parser.add_argument("--force", action="store_true", help="Override freeze protection (development only)")
+    parser.add_argument("--no-sign", action="store_true", dest="no_sign", help="Skip Ed25519 signing (development only)")
     parser.add_argument("--cleanup", action="store_true", help="Clean up partial snapshots before materializing")
 
     args = parser.parse_args()
@@ -705,6 +733,7 @@ def main() -> None:
         year=args.year,
         methodology_version=args.methodology,
         force=args.force,
+        no_sign=args.no_sign,
     )
 
 

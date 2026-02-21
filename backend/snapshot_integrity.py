@@ -47,6 +47,7 @@ EXIT_MANIFEST_MISMATCH: int = 2
 EXIT_HASH_MISMATCH: int = 3
 EXIT_STRUCTURAL_INVARIANT: int = 4
 EXIT_METHODOLOGY_MISMATCH: int = 5
+EXIT_SIGNATURE_INVALID: int = 6
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ def expected_files(eu27: list[str] | None = None) -> set[str]:
         "isi.json",
         "MANIFEST.json",
         "HASH_SUMMARY.json",
+        "SIGNATURE.json",
     }
     for i in range(1, NUM_AXES + 1):
         files.add(f"axis/{i}.json")
@@ -617,6 +619,37 @@ def _check_methodology_consistency(
     return True
 
 
+def _check_signature(
+    snapshot_dir: Path,
+    report: IntegrityReport,
+) -> bool:
+    """Check 6: Ed25519 signature verification.
+
+    Verifies:
+        - SIGNATURE.json exists.
+        - signed_hash matches HASH_SUMMARY snapshot_hash (timing-safe).
+        - Public key is in the key registry.
+        - Ed25519 signature is valid.
+    """
+    from backend.signing import verify_signature
+
+    result = verify_signature(snapshot_dir)
+
+    if not result["valid"]:
+        report.fail(
+            "signature_verification",
+            result["error"] or "Signature verification failed.",
+            EXIT_SIGNATURE_INVALID,
+        )
+        return False
+
+    report.ok(
+        "signature_verification",
+        f"Ed25519 signature valid (key={result['public_key_id']}).",
+    )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Main validation entry point
 # ---------------------------------------------------------------------------
@@ -665,5 +698,6 @@ def validate_snapshot(
     _check_hash_summary(snapshot_dir, methodology_version, year, report)
     _check_structural_invariants(snapshot_dir, methodology_version, report)
     _check_methodology_consistency(snapshot_dir, methodology_version, report)
+    _check_signature(snapshot_dir, report)
 
     return report

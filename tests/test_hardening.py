@@ -102,9 +102,9 @@ class TestSnapshotIntegrity:
         assert report.exit_code == EXIT_OK
 
     def test_report_has_six_checks(self):
-        """Report contains exactly 6 checks (directory_exists + 5 categories)."""
+        """Report contains exactly 7 checks (directory_exists + 5 categories + signature)."""
         report = validate_snapshot(SNAPSHOT_DIR, "v1.0", 2024)
-        assert len(report.checks) == 6
+        assert len(report.checks) == 7
 
     def test_all_checks_pass(self):
         """Every individual check is marked passed."""
@@ -118,11 +118,11 @@ class TestSnapshotIntegrity:
         assert report.errors == []
 
     def test_expected_files_count(self):
-        """Expected file set has exactly 36 entries."""
+        """Expected file set has exactly 37 entries."""
         files = expected_files()
-        # 1 isi.json + 1 MANIFEST.json + 1 HASH_SUMMARY.json
-        # + 6 axis/*.json + 27 country/*.json = 36
-        assert len(files) == 36
+        # 1 isi.json + 1 MANIFEST.json + 1 HASH_SUMMARY.json + 1 SIGNATURE.json
+        # + 6 axis/*.json + 27 country/*.json = 37
+        assert len(files) == 37
 
     def test_missing_directory_fails(self, tmp_path: Path):
         """Non-existent directory fails with EXIT_MISSING_FILES."""

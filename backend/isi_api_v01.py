@@ -256,6 +256,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "methodology": latest_meth,
                 "year": latest_yr,
             }))
+
+            # Immutability check: verify snapshot files are read-only
+            from backend.immutability import check_snapshot_immutability
+            immutability = check_snapshot_immutability(ctx.path)
+            if not immutability["immutable"]:
+                logger.warning(json.dumps({
+                    "event": "immutability_warning",
+                    "violations": len(immutability["violations"]),
+                }))
+            else:
+                logger.info(json.dumps({
+                    "event": "immutability_verified",
+                    "path": str(ctx.path.name),
+                }))
         except Exception as exc:
             logger.error(json.dumps({
                 "event": "startup_abort",

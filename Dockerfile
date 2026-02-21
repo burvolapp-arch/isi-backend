@@ -1,6 +1,7 @@
 # ISI API — Production Container (hardened)
 # No build-time secrets, no dev tools, non-root user, minimal surface.
 # backend/ MUST contain v01/ with all 37+ pre-materialized JSON artifacts.
+# Snapshots are baked at build time and read-only at runtime.
 
 FROM python:3.11-slim
 
@@ -19,10 +20,16 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --no-compile -r /app/requirements.txt && \
     rm -rf /root/.cache /tmp/*
 
-# Copy entire backend/ — application code + pre-materialized v01/ artifacts.
-# No globs, no optional copies. If backend/v01/ is missing, the build still
-# succeeds but /health will report data_present=false (by design).
+# Copy entire backend/ — application code + pre-materialized snapshot artifacts.
 COPY backend/ /app/backend/
+
+# Enforce read-only permissions on snapshot artifacts at build time.
+# Files: 0444 (read-only for all). Directories: 0555 (traverse-only for all).
+# This is defense-in-depth — even if the filesystem is mounted read-write,
+# the files themselves reject writes.
+RUN find /app/backend/snapshots -type f -exec chmod 0444 {} + && \
+    find /app/backend/snapshots -type d -exec chmod 0555 {} + && \
+    find /app/backend/config -type f -exec chmod 0444 {} + 2>/dev/null; true
 
 # Switch to non-root user
 USER isi
