@@ -81,6 +81,14 @@ from backend.security import (  # noqa: I001
     verify_manifest,
 )
 
+from backend.constants import (  # noqa: I001, E402
+    CANONICAL_AXIS_KEYS as _CANONICAL_AXIS_KEYS_CHECK,
+    COUNTRY_NAMES,
+    ISI_AXIS_KEYS,
+    NUM_AXES,
+    ROUND_PRECISION,
+)
+
 from backend.scenario import (  # noqa: I001, E402
     CANONICAL_AXIS_KEYS,
     MAX_ADJUSTMENT,
@@ -90,6 +98,23 @@ from backend.scenario import (  # noqa: I001, E402
     ScenarioResponse,
     simulate,
 )
+
+from backend.methodology import (  # noqa: I001, E402
+    classify,
+    get_latest_methodology_version,
+    get_latest_year,
+    get_methodology,
+    get_years_available,
+)
+
+from backend.snapshot_resolver import (  # noqa: I001, E402
+    SnapshotContext,
+    SnapshotNotFoundError,
+    list_available_snapshots,
+    resolve_snapshot,
+)
+
+from backend.snapshot_cache import SnapshotCache  # noqa: I001, E402
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +412,12 @@ async def _global_exception_handler(request: Request, exc: Exception) -> JSONRes
 _cache: dict[str, Any] = {}
 _integrity: dict[str, Any] = {}
 
+# ---------------------------------------------------------------------------
+# Snapshot cache — keyed by (methodology, year, artifact)
+# ---------------------------------------------------------------------------
+
+_snapshot_cache = SnapshotCache()
+
 
 def _load_json(filepath: Path) -> Any:
     """Load a JSON file. Returns parsed object or None if missing."""
@@ -397,13 +428,45 @@ def _load_json(filepath: Path) -> Any:
 
 
 def _get_or_load(key: str, filepath: Path) -> Any:
-    """Cache-through loader. Loads file once, serves from memory after."""
+    """Cache-through loader for legacy backend/v01/ files.
+
+    Retained for backward compatibility with existing endpoints that
+    serve from backend/v01/. New snapshot-aware endpoints use
+    _snapshot_artifact() instead.
+    """
     if key not in _cache:
         data = _load_json(filepath)
         if data is None:
             return None
         _cache[key] = data
     return _cache[key]
+
+
+def _snapshot_artifact(
+    artifact: str,
+    methodology: str | None = None,
+    year: int | None = None,
+) -> Any:
+    """Load a snapshot artifact via resolver + cache.
+
+    Args:
+        artifact: Cache artifact key ("isi", "country:SE", "axis:1", etc.)
+        methodology: Methodology version. None → latest.
+        year: Reference year. None → latest.
+
+    Returns:
+        Parsed JSON data.
+
+    Raises:
+        SnapshotNotFoundError: if snapshot does not exist.
+    """
+    ctx = resolve_snapshot(methodology=methodology, year=year)
+    return _snapshot_cache.get_artifact(
+        methodology_version=ctx.methodology_version,
+        year=ctx.year,
+        artifact=artifact,
+        snapshot_dir=ctx.path,
+    )
 
 
 def _data_available() -> bool:
@@ -762,8 +825,46 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
     country_code = req.country
     adjustments = req.adjustments
 
-    # --- Step 2: Load baseline data (SAME data source as GET /isi) ---
-    isi_data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
+    # --- Step 2: Resolve snapshot (year/methodology aware) ---
+    req_year = body.get("year")  # Optional[int]
+    req_methodology = body.get("methodology")  # Optional[str]
+
+    try:
+        if req_year is not None or req_methodology is not None:
+            # Explicit year/methodology — load from snapshot
+            ctx = resolve_snapshot(
+                methodology=req_methodology,
+                year=int(req_year) if req_year is not None else None,
+            )
+            isi_data = _snapshot_cache.get_artifact(
+                methodology_version=ctx.methodology_version,
+                year=ctx.year,
+                artifact="isi",
+                snapshot_dir=ctx.path,
+            )
+            scenario_year = ctx.year
+            scenario_methodology = ctx.methodology_version
+        else:
+            # Default: legacy path — latest snapshot via v01 for full backward compat
+            isi_data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
+            scenario_year = None
+            scenario_methodology = None
+    except SnapshotNotFoundError as exc:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "SNAPSHOT_NOT_FOUND",
+                "message": str(exc),
+            },
+        )
+    except KeyError as exc:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "SNAPSHOT_NOT_FOUND",
+                "message": str(exc),
+            },
+        )
     if isi_data is None:
         logger.error(json.dumps({
             "event": "scenario_data_missing",
@@ -856,7 +957,224 @@ async def scenario(request: Request, body: dict) -> JSONResponse:
         "simulated_rank": response_body["simulated"]["rank"],
     }))
 
+    # Enrich meta with year/methodology when explicitly requested
+    if scenario_year is not None or scenario_methodology is not None:
+        if scenario_year is not None:
+            response_body["meta"]["year"] = scenario_year
+        if scenario_methodology is not None:
+            response_body["meta"]["methodology"] = scenario_methodology
+
     return JSONResponse(status_code=200, content=response_body)
+
+
+# ---------------------------------------------------------------------------
+# Methodology & time-series endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/methodology/versions")
+@limiter.limit("60/minute")
+async def methodology_versions(request: Request) -> JSONResponse:
+    """List all registered methodology versions with metadata.
+
+    Returns methodology versions, their available years, and the
+    current "latest" pointer. Source of truth: registry.json.
+    """
+    try:
+        latest = get_latest_methodology_version()
+        latest_year = get_latest_year()
+
+        # Build version list from registry
+        versions = []
+        # We only expose what's in the registry
+        from backend.methodology import _load_registry
+        reg = _load_registry()
+
+        for key, entry in reg.items():
+            if key.startswith("__"):
+                continue
+            versions.append({
+                "methodology_version": entry["methodology_version"],
+                "label": entry["label"],
+                "frozen_at": entry["frozen_at"],
+                "years_available": sorted(entry["years_available"]),
+                "latest_year": entry["latest_year"],
+                "aggregation_rule": entry["aggregation_rule"],
+                "axis_count": entry["axis_count"],
+            })
+
+        # Sort by version string for determinism
+        versions.sort(key=lambda v: v["methodology_version"])
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "latest": latest,
+                "latest_year": latest_year,
+                "versions": versions,
+            },
+        )
+    except Exception as exc:
+        logger.error(json.dumps({
+            "event": "methodology_versions_error",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }))
+        raise HTTPException(status_code=500, detail="Failed to load methodology registry.")
+
+
+@app.get("/country/{code}/history")
+@limiter.limit("30/minute")
+async def country_history(
+    code: str,
+    request: Request,
+    methodology: str | None = None,
+    from_year: int | None = None,
+    to_year: int | None = None,
+) -> JSONResponse:
+    """Time-series history for a single country across available years.
+
+    Query parameters:
+        methodology: Methodology version (default: latest)
+        from_year: Start year inclusive (default: earliest available)
+        to_year: End year inclusive (default: latest available)
+
+    Returns years ascending with composite, rank, classification,
+    all 6 axes, delta_vs_previous, and classification_change.
+
+    Source of truth: snapshot directories. No recomputation.
+    """
+    code = _validate_country_code(code)
+    request_id: str = getattr(request.state, "request_id", "unknown")
+
+    # Resolve methodology
+    try:
+        methodology_version = methodology or get_latest_methodology_version()
+        # Validate methodology exists (will raise KeyError if not)
+        get_methodology(methodology_version)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown methodology version: '{methodology}'",
+        )
+
+    # Get available years for this methodology
+    try:
+        all_years = get_years_available(methodology_version)
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load methodology registry.",
+        )
+
+    # Apply year range filter
+    if from_year is not None:
+        all_years = [y for y in all_years if y >= from_year]
+    if to_year is not None:
+        all_years = [y for y in all_years if y <= to_year]
+
+    all_years.sort()
+
+    if not all_years:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No snapshots available for methodology '{methodology_version}' "
+                f"in the requested year range."
+            ),
+        )
+
+    # Collect data points from each year's snapshot
+    data_points: list[dict[str, Any]] = []
+    prev_composite: float | None = None
+    prev_classification: str | None = None
+
+    for yr in all_years:
+        try:
+            ctx = resolve_snapshot(methodology=methodology_version, year=yr)
+        except SnapshotNotFoundError:
+            # Year listed in registry but snapshot not materialized — skip
+            logger.warning(json.dumps({
+                "event": "history_snapshot_missing",
+                "request_id": request_id,
+                "country": code,
+                "methodology": methodology_version,
+                "year": yr,
+            }))
+            continue
+
+        # Load isi.json for this snapshot (contains all countries with composites/ranks)
+        isi_data = _snapshot_cache.get_artifact(
+            methodology_version=ctx.methodology_version,
+            year=ctx.year,
+            artifact="isi",
+            snapshot_dir=ctx.path,
+        )
+        if isi_data is None:
+            continue
+
+        # Find this country in the ranked list
+        countries = isi_data.get("countries", [])
+        entry: dict[str, Any] | None = None
+        rank: int = 0
+        for i, c in enumerate(countries, 1):
+            if c.get("country") == code:
+                entry = c
+                rank = i
+                break
+
+        if entry is None:
+            continue
+
+        composite = entry.get("isi_composite")
+        classification = entry.get("classification")
+
+        # Build axes dict
+        axes: dict[str, float | None] = {}
+        for ax_key in ISI_AXIS_KEYS:
+            axes[ax_key] = entry.get(ax_key)
+
+        # Compute delta vs previous year
+        delta_vs_previous: float | None = None
+        if prev_composite is not None and composite is not None:
+            delta_vs_previous = round(composite - prev_composite, ROUND_PRECISION)
+
+        # Classification change
+        classification_change: str | None = None
+        if prev_classification is not None and classification is not None:
+            if classification != prev_classification:
+                classification_change = f"{prev_classification} → {classification}"
+
+        point: dict[str, Any] = {
+            "year": yr,
+            "composite": composite,
+            "rank": rank,
+            "classification": classification,
+            "axes": axes,
+            "data_window": ctx.data_window,
+            "delta_vs_previous": delta_vs_previous,
+            "classification_change": classification_change,
+        }
+        data_points.append(point)
+
+        prev_composite = composite
+        prev_classification = classification
+
+    if not data_points:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No data found for country '{code}' in methodology '{methodology_version}'.",
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "country": code,
+            "country_name": COUNTRY_NAMES.get(code, code),
+            "methodology_version": methodology_version,
+            "years_count": len(data_points),
+            "years": data_points,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
