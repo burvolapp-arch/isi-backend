@@ -1,0 +1,37 @@
+{
+  "n": 27,
+  "min": 0.23567126,
+  "max": 0.51748148,
+  "mean": 0.34439144111111114,
+  "median": 0.34027984,
+  "std_population": 0.06992187980607417,
+  "std_sample": 0.07125384481977291,
+  "percentiles": {
+    "p10": 0.25534441,
+    "p25": 0.29179051,
+    "p50": 0.34027984,
+    "p75": 0.39060669,
+    "p90": 0.42586650400000003
+  },
+  "paper_std_type": "population",
+  "validation_vs_isi_json": {
+    "min": {
+      "computed": 0.23567126,
+      "expected": 0.23567126,
+      "diff": 0.0,
+      "pass": true
+    },
+    "max": {
+      "computed": 0.51748148,
+      "expected": 0.51748148,
+      "diff": 0.0,
+      "pass": true
+    },
+    "mean": {
+      "computed": 0.34439144111111114,
+      "expected": 0.34439144,
+      "diff": 1.1111111475337054e-09,
+      "pass": true
+    }
+  }
+}

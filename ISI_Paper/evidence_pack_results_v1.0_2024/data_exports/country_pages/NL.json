@@ -1,0 +1,78 @@
+{
+  "country": "NL",
+  "country_name": "Netherlands",
+  "rank": 15,
+  "isi_composite": 0.33515702,
+  "classification": "moderately_concentrated",
+  "window": "2022–2024",
+  "year": 2024,
+  "methodology_version": "v1.0",
+  "axes": [
+    {
+      "axis_id": 1,
+      "axis_slug": "financial",
+      "axis_name": "Financial Sovereignty",
+      "score": 0.12107826,
+      "classification": "unconcentrated",
+      "basis": "BOTH",
+      "channel_a_concentration": 0.1403881645,
+      "channel_b_concentration": 0.1015346534,
+      "warnings_count": 4
+    },
+    {
+      "axis_id": 2,
+      "axis_slug": "energy",
+      "axis_name": "Energy Dependency",
+      "score": 0.31992851,
+      "classification": "moderately_concentrated",
+      "basis": "",
+      "channel_a_concentration": null,
+      "channel_b_concentration": null,
+      "warnings_count": 3
+    },
+    {
+      "axis_id": 3,
+      "axis_slug": "technology",
+      "axis_name": "Technology / Semiconductor Dependency",
+      "score": 0.12527375,
+      "classification": "unconcentrated",
+      "basis": "BOTH_CHANNELS",
+      "channel_a_concentration": 0.11758299341491345,
+      "channel_b_concentration": 0.1329645052173412,
+      "warnings_count": 5
+    },
+    {
+      "axis_id": 4,
+      "axis_slug": "defense",
+      "axis_name": "Defense Industrial Dependency",
+      "score": 0.95955396,
+      "classification": "highly_concentrated",
+      "basis": "BOTH_CHANNELS",
+      "channel_a_concentration": 0.9472781539019197,
+      "channel_b_concentration": 0.9718297582048568,
+      "warnings_count": 5
+    },
+    {
+      "axis_id": 5,
+      "axis_slug": "critical_inputs",
+      "axis_name": "Critical Inputs / Raw Materials Dependency",
+      "score": 0.13018835,
+      "classification": "unconcentrated",
+      "basis": "BOTH",
+      "channel_a_concentration": 0.088193897446,
+      "channel_b_concentration": 0.172182808114,
+      "warnings_count": 4
+    },
+    {
+      "axis_id": 6,
+      "axis_slug": "logistics",
+      "axis_name": "Logistics / Freight Dependency",
+      "score": 0.3549193,
+      "classification": "moderately_concentrated",
+      "basis": "BOTH",
+      "channel_a_concentration": 0.3450451478,
+      "channel_b_concentration": 0.3787759129,
+      "warnings_count": 5
+    }
+  ]
+}

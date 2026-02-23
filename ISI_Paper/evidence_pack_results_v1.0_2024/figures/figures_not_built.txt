@@ -1,0 +1,13 @@
+Figures could not be generated.
+matplotlib is not installed in the current Python environment.
+
+To generate figures, install matplotlib:
+  pip install matplotlib
+
+Then re-run:
+  python -m ISI_Paper.tools.results_pack.build_results_pack
+
+Required figures:
+  - figures/hist_composite.pdf (histogram of ISI composite scores)
+  - figures/boxplot_axes.pdf (box plot of axis distributions)
+  - figures/corr_heatmap.pdf (Pearson correlation heatmap)
