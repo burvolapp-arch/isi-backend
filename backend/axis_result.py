@@ -28,12 +28,14 @@ from typing import Any
 from backend.constants import ROUND_PRECISION
 from backend.severity import (
     compute_axis_severity,
+    compute_axis_data_severity,
     compute_axis_severity_breakdown,
     compute_country_severity,
     assign_comparability_tier,
     compute_adjusted_composite,
     compute_stability_analysis,
     build_interpretation,
+    classify_structural_class,
     SEVERITY_WEIGHTS,
 )
 
@@ -116,6 +118,7 @@ class AxisResult:
         """
         flags = _build_quality_flags(self)
         severity = compute_axis_severity(flags)
+        data_severity = compute_axis_data_severity(flags)
         return {
             "country": self.country,
             "axis_id": self.axis_id,
@@ -130,6 +133,7 @@ class AxisResult:
             "channel_b_concentration": self.channel_b_concentration,
             "data_quality_flags": flags,
             "degradation_severity": severity,
+            "data_severity": data_severity,
         }
 
 
@@ -338,7 +342,11 @@ class CompositeResult:
                 sev = ad["degradation_severity"]
                 axis_severities.append((ad["axis_id"], ad["axis_slug"], sev))
                 if ad["score"] is not None:
-                    included_axis_scores.append((ad["score"], sev))
+                    # Use data_severity (not total severity) for aggregation
+                    # weights. Structural severity affects comparability
+                    # assessment but NOT the quality weight function.
+                    data_sev = ad["data_severity"]
+                    included_axis_scores.append((ad["score"], data_sev))
                     included_axes_for_stability.append(
                         (ad["axis_id"], ad["axis_slug"], ad["score"])
                     )
@@ -368,6 +376,11 @@ class CompositeResult:
             warnings=list(self.warnings),
         )
 
+        # Structural class (IMPORTER / BALANCED / PRODUCER)
+        structural_class_info = classify_structural_class(
+            self.country, axis_dicts,
+        )
+
         return {
             "country": self.country,
             "country_name": self.country_name,
@@ -382,6 +395,7 @@ class CompositeResult:
             "strict_comparability_tier": strict_tier,
             "severity_analysis": country_sev,
             "structural_degradation_profile": profile,
+            "structural_class": structural_class_info,
             "stability_analysis": stability,
             "interpretation_flags": interpretation["interpretation_flags"],
             "interpretation_summary": interpretation["interpretation_summary"],

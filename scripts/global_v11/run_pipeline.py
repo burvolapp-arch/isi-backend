@@ -38,6 +38,7 @@ from backend.constants import ROUND_PRECISION
 from backend.scope import get_country_name, get_scope_sorted
 from backend.severity import (
     check_cross_country_comparability,
+    check_structural_class_comparability,
     assign_comparability_tier,
 )
 
@@ -184,15 +185,18 @@ def export_snapshot(
     country_degradation: dict[str, dict[str, Any]] = {}
     country_severities: dict[str, float] = {}
     country_tiers: dict[str, str] = {}
+    country_classes: dict[str, str] = {}
     for c in composites:
         cd = c.to_dict()
         profile = cd.get("structural_degradation_profile", {})
         sev_analysis = cd.get("severity_analysis", {})
         total_sev = sev_analysis.get("total_severity", 0.0)
         strict_tier = cd.get("strict_comparability_tier", "TIER_4")
+        sc_info = cd.get("structural_class", {})
 
         country_severities[c.country] = total_sev
         country_tiers[c.country] = strict_tier
+        country_classes[c.country] = sc_info.get("structural_class", "IMPORTER")
 
         country_degradation[c.country] = {
             "axes_included": c.axes_included,
@@ -206,10 +210,14 @@ def export_snapshot(
             "strict_comparability_tier": strict_tier,
             "total_severity": total_sev,
             "severity_profile": sev_analysis.get("severity_profile", {}),
+            "structural_class": sc_info,
         }
 
     # Cross-country comparability enforcement (Phase 3)
     cross_country_violations = check_cross_country_comparability(country_severities)
+
+    # Structural class comparability enforcement (Issue 4)
+    structural_class_violations = check_structural_class_comparability(country_classes)
 
     snapshot = {
         "methodology_version": METHODOLOGY,
@@ -221,6 +229,7 @@ def export_snapshot(
         "axis_summaries": axis_summaries,
         "country_degradation_profiles": country_degradation,
         "cross_country_comparability_violations": cross_country_violations,
+        "structural_class_violations": structural_class_violations,
         "country_tier_summary": country_tiers,
         "countries": [c.to_dict() for c in composites],
     }
