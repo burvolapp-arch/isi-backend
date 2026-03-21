@@ -211,14 +211,28 @@ def compute_axis_2() -> list[AxisResult]:
             sys.exit(1)
         score = round(max(0.0, min(1.0, score)), ROUND_PRECISION)
 
-        # Energy is single-channel → basis is always BOTH if data exists
+        # Energy is single-channel — no structural Channel B exists.
+        # Use basis="BOTH" ONLY when the full fuel-weighted methodology
+        # applies (Eurostat with all fuel types). Comtrade-sourced scores
+        # with reduced granularity use A_ONLY to prevent false comparability.
+        if source == "EUROSTAT_ENERGY_2024":
+            basis = "BOTH"
+            validity = "VALID"
+        else:
+            basis = "A_ONLY"
+            validity = "A_ONLY"
+            warnings.append(
+                "W-SINGLE-CHANNEL-ENERGY: Comtrade HS-6 fuel mapping "
+                "does not replicate full Eurostat fuel-type granularity"
+            )
+
         result = AxisResult(
             country=country,
             axis_id=2,
             axis_slug="energy",
             score=score,
-            basis="BOTH",
-            validity="VALID",
+            basis=basis,
+            validity=validity,
             coverage=None,
             source=source,
             warnings=tuple(warnings),

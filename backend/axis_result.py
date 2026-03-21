@@ -26,6 +26,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from backend.constants import ROUND_PRECISION
+from backend.severity import (
+    compute_axis_severity,
+    compute_axis_severity_breakdown,
+    compute_country_severity,
+    assign_comparability_tier,
+    compute_adjusted_composite,
+    compute_stability_analysis,
+    build_interpretation,
+    SEVERITY_WEIGHTS,
+)
 
 # ---------------------------------------------------------------------------
 # Enums (string-based for JSON compatibility)
@@ -93,7 +103,19 @@ class AxisResult:
     channel_b_concentration: float | None
 
     def to_dict(self) -> dict[str, Any]:
-        """Canonical JSON-serializable representation."""
+        """Canonical JSON-serializable representation.
+
+        Includes `data_quality_flags` — a machine-readable list of every
+        structural weakness in this result. Consumers MUST NOT ignore this
+        field. If it is non-empty, the score is NOT directly comparable
+        to scores produced under different conditions.
+
+        Includes `degradation_severity` — a float quantifying the total
+        severity of all data quality issues on this axis. 0.0 = clean.
+        Higher values indicate greater interpretive compromise.
+        """
+        flags = _build_quality_flags(self)
+        severity = compute_axis_severity(flags)
         return {
             "country": self.country,
             "axis_id": self.axis_id,
@@ -106,7 +128,57 @@ class AxisResult:
             "warnings": list(self.warnings),
             "channel_a_concentration": self.channel_a_concentration,
             "channel_b_concentration": self.channel_b_concentration,
+            "data_quality_flags": flags,
+            "degradation_severity": severity,
         }
+
+
+def _build_quality_flags(r: "AxisResult") -> list[str]:
+    """Derive machine-readable data quality flags from an AxisResult.
+
+    These flags make every structural weakness explicit in the serialized
+    output. A consumer receiving a non-empty list MUST treat the score
+    as non-comparable to unflagged scores without adjustment.
+
+    Flags are deterministic: same AxisResult → same flags.
+    """
+    flags: list[str] = []
+
+    if r.validity == "INVALID":
+        flags.append("INVALID_AXIS")
+        return flags  # No further flags meaningful
+
+    # --- Channel degradation ---
+    if r.basis == "A_ONLY":
+        flags.append("SINGLE_CHANNEL_A")
+    elif r.basis == "B_ONLY":
+        flags.append("SINGLE_CHANNEL_B")
+
+    # --- Granularity warnings ---
+    if any("W-HS6-GRANULARITY" in w for w in r.warnings):
+        flags.append("REDUCED_PRODUCT_GRANULARITY")
+
+    # --- Producer inversion ---
+    if any("W-PRODUCER-INVERSION" in w for w in r.warnings):
+        flags.append("PRODUCER_INVERSION")
+
+    # --- Sanctions distortion ---
+    if any("W-SANCTIONS-DISTORTION" in w for w in r.warnings):
+        flags.append("SANCTIONS_DISTORTION")
+
+    # --- CPIS absence ---
+    if any("F-CPIS-ABSENT" in w for w in r.warnings):
+        flags.append("CPIS_NON_PARTICIPANT")
+
+    # --- Zero-supplier structural zero (defense) ---
+    if any("D-5" in w for w in r.warnings):
+        flags.append("ZERO_BILATERAL_SUPPLIERS")
+
+    # --- Temporal mismatch ---
+    if any("W-TEMPORAL-MIX" in w for w in r.warnings):
+        flags.append("TEMPORAL_MISMATCH")
+
+    return flags
 
 
 def validate_axis_result(r: AxisResult) -> None:
@@ -235,20 +307,169 @@ class CompositeResult:
     axis_results: tuple[AxisResult, ...]  # all 6 axis results
 
     def to_dict(self) -> dict[str, Any]:
-        """Canonical JSON-serializable representation."""
+        """Canonical JSON-serializable representation.
+
+        Includes:
+        - `comparability_tier` (legacy) and `structural_degradation_profile`
+        - `composite_raw` — current unweighted arithmetic mean
+        - `composite_adjusted` — degradation-aware weighted composite
+        - `severity_analysis` — per-axis and total severity metrics
+        - `strict_comparability_tier` — TIER_1/2/3/4 from severity model
+        - `stability_analysis` — leave-one-out sensitivity metrics
+        - `interpretation_flags` / `interpretation_summary` — mandatory
+          human-readable interpretation with explicit warning language
+
+        No composite output can appear "clean" when the underlying
+        axis data quality is asymmetric or degraded.
+        """
+        # Legacy comparability (kept for backward compatibility)
+        legacy_tier, profile = _compute_comparability(
+            self.axis_results, self.axes_included
+        )
+
+        # Per-axis severity + country severity
+        axis_dicts = [ar.to_dict() for ar in self.axis_results]
+        axis_severities: list[tuple[int, str, float]] = []
+        included_axis_scores: list[tuple[float, float]] = []
+        included_axes_for_stability: list[tuple[int, str, float]] = []
+
+        for ad in axis_dicts:
+            if ad["validity"] != "INVALID":
+                sev = ad["degradation_severity"]
+                axis_severities.append((ad["axis_id"], ad["axis_slug"], sev))
+                if ad["score"] is not None:
+                    included_axis_scores.append((ad["score"], sev))
+                    included_axes_for_stability.append(
+                        (ad["axis_id"], ad["axis_slug"], ad["score"])
+                    )
+
+        country_sev = compute_country_severity(axis_severities)
+        total_severity = country_sev["total_severity"]
+
+        # Strict comparability tier (severity-driven)
+        strict_tier = assign_comparability_tier(total_severity)
+
+        # Degradation-adjusted composite (only if raw composite is eligible)
+        if self.isi_composite is not None:
+            composite_adjusted = compute_adjusted_composite(included_axis_scores)
+        else:
+            composite_adjusted = None
+
+        # Stability analysis (leave-one-out)
+        stability = compute_stability_analysis(included_axes_for_stability)
+
+        # Interpretation engine
+        interpretation = build_interpretation(
+            total_severity=total_severity,
+            comparability_tier=strict_tier,
+            n_degraded_axes=country_sev["n_degraded_axes"],
+            n_included_axes=self.axes_included,
+            confidence=self.confidence,
+            warnings=list(self.warnings),
+        )
+
         return {
             "country": self.country,
             "country_name": self.country_name,
             "isi_composite": self.isi_composite,
+            "composite_raw": self.isi_composite,
+            "composite_adjusted": composite_adjusted,
             "classification": self.classification,
             "axes_included": self.axes_included,
             "axes_excluded": [dict(e) for e in self.axes_excluded],
             "confidence": self.confidence,
+            "comparability_tier": legacy_tier,
+            "strict_comparability_tier": strict_tier,
+            "severity_analysis": country_sev,
+            "structural_degradation_profile": profile,
+            "stability_analysis": stability,
+            "interpretation_flags": interpretation["interpretation_flags"],
+            "interpretation_summary": interpretation["interpretation_summary"],
             "scope": self.scope,
             "methodology_version": self.methodology_version,
             "warnings": list(self.warnings),
-            "axes": [ar.to_dict() for ar in self.axis_results],
+            "axes": axis_dicts,
         }
+
+
+def _compute_comparability(
+    axis_results: tuple["AxisResult", ...],
+    axes_included: int,
+) -> tuple[str, dict[str, Any]]:
+    """Derive comparability tier and degradation profile from axis results.
+
+    Tiers:
+        FULL_COMPARABILITY  — 6 axes, all VALID, all BOTH basis, no granularity warnings
+        HIGH_COMPARABILITY  — 5-6 axes, mostly VALID, minor degradation
+        LIMITED_COMPARABILITY — 4+ axes but significant degradation (A_ONLY, mixed sources)
+        NOT_COMPARABLE      — fewer than 4 axes or severe structural issues
+
+    The profile dict gives machine-readable counts of each degradation type.
+    """
+    n_valid_both = 0
+    n_a_only = 0
+    n_b_only = 0
+    n_degraded = 0
+    n_invalid = 0
+    n_producer_inversion = 0
+    n_reduced_granularity = 0
+    n_zero_suppliers = 0
+    unique_sources: set[str] = set()
+
+    for ar in axis_results:
+        if ar.validity == "INVALID":
+            n_invalid += 1
+            continue
+        if ar.validity == "VALID" and ar.basis == "BOTH":
+            n_valid_both += 1
+        if ar.basis == "A_ONLY":
+            n_a_only += 1
+        elif ar.basis == "B_ONLY":
+            n_b_only += 1
+        if ar.validity == "DEGRADED":
+            n_degraded += 1
+        if any("W-PRODUCER-INVERSION" in w for w in ar.warnings):
+            n_producer_inversion += 1
+        if any("W-HS6-GRANULARITY" in w for w in ar.warnings):
+            n_reduced_granularity += 1
+        if any("D-5" in w for w in ar.warnings):
+            n_zero_suppliers += 1
+        if ar.source:
+            unique_sources.add(ar.source)
+
+    profile: dict[str, Any] = {
+        "axes_valid_both": n_valid_both,
+        "axes_a_only": n_a_only,
+        "axes_b_only": n_b_only,
+        "axes_degraded": n_degraded,
+        "axes_invalid": n_invalid,
+        "axes_producer_inverted": n_producer_inversion,
+        "axes_reduced_granularity": n_reduced_granularity,
+        "axes_zero_bilateral_suppliers": n_zero_suppliers,
+        "unique_source_count": len(unique_sources),
+        "source_heterogeneous": len(unique_sources) > 1,
+    }
+
+    # Determine tier
+    if axes_included < 4:
+        tier = "NOT_COMPARABLE"
+    elif (
+        n_valid_both == 6
+        and n_a_only == 0
+        and n_degraded == 0
+        and n_reduced_granularity == 0
+    ):
+        tier = "FULL_COMPARABILITY"
+    elif (
+        axes_included >= 5
+        and n_a_only <= 1
+        and n_degraded == 0
+    ):
+        tier = "HIGH_COMPARABILITY"
+    else:
+        tier = "LIMITED_COMPARABILITY"
+
+    return tier, profile
 
 
 def validate_composite_result(r: CompositeResult) -> None:
@@ -292,6 +513,57 @@ def validate_composite_result(r: CompositeResult) -> None:
     for ar in r.axis_results:
         validate_axis_result(ar)
 
+    # --- Phase 8: Validation hardening for new mandatory fields ---
+    d = r.to_dict()
+
+    # severity_analysis must be present and non-empty
+    if "severity_analysis" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing severity_analysis"
+        )
+    sev = d["severity_analysis"]
+    if "total_severity" not in sev:
+        raise ValueError(
+            f"CompositeResult({r.country}): severity_analysis missing total_severity"
+        )
+
+    # strict_comparability_tier must be present
+    if "strict_comparability_tier" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing strict_comparability_tier"
+        )
+
+    # composite_adjusted must be present (may be None for ineligible)
+    if "composite_adjusted" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing composite_adjusted"
+        )
+
+    # stability_analysis must be present
+    if "stability_analysis" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing stability_analysis"
+        )
+
+    # interpretation_flags and interpretation_summary must be present
+    if "interpretation_flags" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing interpretation_flags"
+        )
+    if "interpretation_summary" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing interpretation_summary"
+        )
+
+    # Severity must be consistent with flags:
+    # If any axis has data_quality_flags but severity is missing, fail.
+    for ad in d.get("axes", []):
+        if ad.get("data_quality_flags") and "degradation_severity" not in ad:
+            raise ValueError(
+                f"CompositeResult({r.country}): axis {ad.get('axis_id')} "
+                f"has data_quality_flags but missing degradation_severity"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Composite computation (v1.1 path)
@@ -327,6 +599,8 @@ def compute_composite_v11(
     excluded: list[dict[str, Any]] = []
     all_warnings: list[str] = []
     n_degraded = 0
+    n_a_only = 0
+    included_sources: set[str] = set()
 
     for ar in axis_results:
         validate_axis_result(ar)
@@ -339,11 +613,30 @@ def compute_composite_v11(
             })
         else:
             included.append(ar)
+            included_sources.add(ar.source)
             if ar.validity == "DEGRADED":
                 n_degraded += 1
+            if ar.basis in ("A_ONLY", "B_ONLY"):
+                n_a_only += 1
 
         # Collect warnings
         all_warnings.extend(ar.warnings)
+
+    # Source heterogeneity: if included axes use >2 distinct data sources,
+    # the composite mixes incompatible provenance → flag it.
+    if len(included_sources) > 2:
+        all_warnings.append(
+            f"W-SOURCE-HETEROGENEITY: composite merges {len(included_sources)} "
+            f"distinct data sources — cross-country comparability is limited"
+        )
+
+    # Channel degradation: if >50% of included axes are single-channel,
+    # the composite structurally lacks the dual-channel robustness.
+    if included and n_a_only > len(included) / 2:
+        all_warnings.append(
+            f"W-CHANNEL-DEGRADATION: {n_a_only}/{len(included)} included axes "
+            f"are single-channel — composite reliability is reduced"
+        )
 
     n_computable = len(included)
 
@@ -359,10 +652,13 @@ def compute_composite_v11(
         composite = round(raw, ROUND_PRECISION)
         classification = classify(composite, methodology_version)
 
-        # Confidence: constraint spec Section 9.3
-        if n_degraded == 0 and n_computable == 6:
+        # Confidence: constraint spec Section 9.3 (hardened)
+        # FULL requires: all 6 axes computable, none DEGRADED, none single-channel
+        # A_ONLY axes are structurally incomplete — they MUST reduce confidence.
+        n_structurally_weak = n_degraded + n_a_only
+        if n_structurally_weak == 0 and n_computable == 6:
             confidence = "FULL"
-        elif n_degraded > 2 or n_computable == 4:
+        elif n_structurally_weak > 2 or n_computable == 4:
             confidence = "LOW_CONFIDENCE"
         else:
             confidence = "REDUCED"

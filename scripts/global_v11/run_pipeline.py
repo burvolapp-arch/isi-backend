@@ -24,6 +24,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -35,6 +36,10 @@ from backend.axis_result import (
 )
 from backend.constants import ROUND_PRECISION
 from backend.scope import get_country_name, get_scope_sorted
+from backend.severity import (
+    check_cross_country_comparability,
+    assign_comparability_tier,
+)
 
 # Lazy imports for axis modules (same package)
 from scripts.global_v11.compute_axis_1_financial import compute_axis_1
@@ -76,9 +81,12 @@ def run_all_axes() -> dict[str, list[AxisResult]]:
     axis_5 = compute_axis_5()
     print(f"  → {len(axis_5)} results\n")
 
-    print("Running Axis 6 — Logistics (DEFERRED)...", flush=True)
+    print("Running Axis 6 — Logistics...", flush=True)
     axis_6 = compute_axis_6()
-    print(f"  → {len(axis_6)} results (all INVALID — expected)\n")
+    n_valid_6 = sum(1 for r in axis_6 if r.validity != "INVALID")
+    n_invalid_6 = sum(1 for r in axis_6 if r.validity == "INVALID")
+    print(f"  → {len(axis_6)} results "
+          f"(computable={n_valid_6}, invalid={n_invalid_6})\n")
 
     return {
         "financial": axis_1,
@@ -145,7 +153,12 @@ def export_snapshot(
     composites: list[CompositeResult],
     all_axes: dict[str, list[AxisResult]],
 ) -> Path:
-    """Export full v1.1 snapshot as structured JSON."""
+    """Export full v1.1 snapshot as structured JSON.
+
+    Includes severity model, cross-country comparability enforcement,
+    dual composite (raw + adjusted), stability analysis, and
+    interpretation flags for every country.
+    """
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / "isi_v11_snapshot.json"
 
@@ -167,6 +180,37 @@ def export_snapshot(
     n_composite = sum(1 for c in composites if c.isi_composite is not None)
     n_ineligible = len(composites) - n_composite
 
+    # Per-country degradation + severity profiles from the enriched to_dict()
+    country_degradation: dict[str, dict[str, Any]] = {}
+    country_severities: dict[str, float] = {}
+    country_tiers: dict[str, str] = {}
+    for c in composites:
+        cd = c.to_dict()
+        profile = cd.get("structural_degradation_profile", {})
+        sev_analysis = cd.get("severity_analysis", {})
+        total_sev = sev_analysis.get("total_severity", 0.0)
+        strict_tier = cd.get("strict_comparability_tier", "TIER_4")
+
+        country_severities[c.country] = total_sev
+        country_tiers[c.country] = strict_tier
+
+        country_degradation[c.country] = {
+            "axes_included": c.axes_included,
+            "axes_valid_both": profile.get("axes_valid_both", 0),
+            "axes_a_only": profile.get("axes_a_only", 0),
+            "axes_degraded": profile.get("axes_degraded", 0),
+            "axes_invalid": 6 - c.axes_included,
+            "axes_reduced_granularity": profile.get("axes_reduced_granularity", 0),
+            "axes_producer_inverted": profile.get("axes_producer_inverted", 0),
+            "comparability_tier": cd.get("comparability_tier", "UNKNOWN"),
+            "strict_comparability_tier": strict_tier,
+            "total_severity": total_sev,
+            "severity_profile": sev_analysis.get("severity_profile", {}),
+        }
+
+    # Cross-country comparability enforcement (Phase 3)
+    cross_country_violations = check_cross_country_comparability(country_severities)
+
     snapshot = {
         "methodology_version": METHODOLOGY,
         "scope": SCOPE_ID,
@@ -175,6 +219,9 @@ def export_snapshot(
         "composite_eligible": n_composite,
         "composite_ineligible": n_ineligible,
         "axis_summaries": axis_summaries,
+        "country_degradation_profiles": country_degradation,
+        "cross_country_comparability_violations": cross_country_violations,
+        "country_tier_summary": country_tiers,
         "countries": [c.to_dict() for c in composites],
     }
 
