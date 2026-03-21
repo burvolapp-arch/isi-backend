@@ -36,6 +36,46 @@
       "score_range": [0.0, 1.0],
       "round_precision": 8,
       "notes": "Initial methodology. All axes equally weighted. Unweighted arithmetic mean of 6 HHI-based axis scores."
+    },
+    {
+      "methodology_version": "v1.1",
+      "label": "ISI Global Expansion Phase 1 — Variable-Axis HHI Mean",
+      "frozen_at": "2026-03-21T00:00:00+00:00",
+      "latest_year": 2024,
+      "years_available": [2024],
+      "aggregation_rule": "unweighted_arithmetic_mean",
+      "aggregation_formula": "ISI_i = SUM(included_axes) / N_computable, N_computable >= 4",
+      "axis_count": 6,
+      "axis_count_minimum": 4,
+      "axis_slugs": [
+        "critical_inputs",
+        "defense",
+        "energy",
+        "financial",
+        "logistics",
+        "technology"
+      ],
+      "axis_weights": {
+        "critical_inputs": 1.0,
+        "defense": 1.0,
+        "energy": 1.0,
+        "financial": 1.0,
+        "logistics": 1.0,
+        "technology": 1.0
+      },
+      "classification_thresholds": [
+        [0.50, "highly_concentrated"],
+        [0.25, "moderately_concentrated"],
+        [0.15, "mildly_concentrated"]
+      ],
+      "default_classification": "unconcentrated",
+      "score_range": [0.0, 1.0],
+      "round_precision": 8,
+      "scope": "PHASE1-7",
+      "scope_codes": ["AU", "CN", "GB", "JP", "KR", "NO", "US"],
+      "variable_axis_count": true,
+      "known_limitations": ["LIM-001", "LIM-002", "LIM-003", "LIM-004", "LIM-005"],
+      "notes": "Global expansion Phase 1. 7-country scope. Variable axis denominator (4-6). Same thresholds and weights as v1.0. Source changes: UN Comtrade replaces Eurostat Comext for axes 2/3/5. SIPRI recipient mapping extended. HS6 replaces CN8 for non-EU countries."
     }
   ]
 }
