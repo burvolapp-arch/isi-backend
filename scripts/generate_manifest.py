@@ -40,7 +40,7 @@ def main() -> None:
     if not BACKEND_V01.is_dir():
         print(
             f"FATAL: backend/v01 directory not found: {BACKEND_V01}\n"
-            f"Run export_isi_backend_v01.py first to materialize JSON artifacts.",
+            f"Run export_snapshot.py first to materialize JSON artifacts.",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -89,7 +89,7 @@ def _make_baseline_entry(
 EU27_CODES = [
     ("AT", "Austria"), ("BE", "Belgium"), ("BG", "Bulgaria"),
     ("CY", "Cyprus"), ("CZ", "Czechia"), ("DE", "Germany"),
-    ("DK", "Denmark"), ("EE", "Estonia"), ("EL", "Greece"),
+    ("DK", "Denmark"), ("EE", "Estonia"), ("GR", "Greece"),
     ("ES", "Spain"), ("FI", "Finland"), ("FR", "France"),
     ("HR", "Croatia"), ("HU", "Hungary"), ("IE", "Ireland"),
     ("IT", "Italy"), ("LT", "Lithuania"), ("LU", "Luxembourg"),
@@ -691,7 +691,7 @@ class TestIdentity:
 
 
 class TestThresholdConsistency:
-    """Invariant: classify() thresholds match the exporter (export_isi_backend_v01.py).
+    """Invariant: classify() thresholds match the exporter (export_snapshot.py).
 
     The authoritative thresholds are from standard HHI interpretation:
         ≥ 0.50 → highly_concentrated

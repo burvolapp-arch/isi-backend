@@ -22,7 +22,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from backend.constants import ROUND_PRECISION
+from backend.constants import ROUND_PRECISION  # referenced in docstring
 
 # ---------------------------------------------------------------------------
 # Registry path — relative to this module

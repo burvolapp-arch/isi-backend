@@ -84,7 +84,7 @@ ISO3_TO_ISO2: dict[str, str] = {
     "CYP": "CY",
     "LUX": "LU",
     "MLT": "MT",
-    "GRC": "EL",  # Greece: ISO-3 GRC → Eurostat EL
+    "GRC": "GR",  # Greece: ISO-3 GRC → ISO-2 GR (not Eurostat "EL")
     # Major non-EU trade partners
     "TWN": "TW",
     "SGP": "SG",

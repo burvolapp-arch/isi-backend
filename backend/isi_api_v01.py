@@ -3,7 +3,7 @@
 isi_api_v01.py — ISI API Server (hardened, v0.5)
 
 Serves pre-materialized JSON artifacts produced by
-export_isi_backend_v01.py and a deterministic scenario simulation
+export_snapshot.py and a deterministic scenario simulation
 endpoint. Read endpoints are direct file reads from backend/v01/.
 The POST /scenario endpoint performs bounded, validated computation
 using the SAME data source as baseline endpoints.
@@ -39,7 +39,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -93,14 +92,12 @@ from backend.scenario import (  # noqa: I001, E402
     CANONICAL_AXIS_KEYS,
     MAX_ADJUSTMENT,
     SCENARIO_VERSION,
-    VALID_CANONICAL_KEYS,
     ScenarioRequest,
     ScenarioResponse,
     simulate,
 )
 
 from backend.methodology import (  # noqa: I001, E402
-    classify,
     get_latest_methodology_version,
     get_latest_year,
     get_methodology,
@@ -108,13 +105,18 @@ from backend.methodology import (  # noqa: I001, E402
 )
 
 from backend.snapshot_resolver import (  # noqa: I001, E402
-    SnapshotContext,
     SnapshotNotFoundError,
-    list_available_snapshots,
     resolve_snapshot,
 )
 
 from backend.snapshot_cache import SnapshotCache  # noqa: I001, E402
+
+from backend.constants import (  # noqa: I001, E402
+    EU27_SORTED,
+    EU27_CODES,
+    NUM_AXES,
+    COUNTRY_CODE_RE as _COUNTRY_RE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -147,17 +149,10 @@ REDIS_URL = os.getenv("REDIS_URL", "").strip() or None
 
 BACKEND_ROOT = Path(__file__).resolve().parent / "v01"
 
-EU27 = sorted([
-    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES",
-    "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
-    "NL", "PL", "PT", "RO", "SE", "SI", "SK",
-])
-EU27_SET = frozenset(EU27)
+EU27 = EU27_SORTED
+EU27_SET = EU27_CODES
 
-VALID_AXES = {1, 2, 3, 4, 5, 6}
-
-# Strict country code regex: exactly 2 alpha characters
-_COUNTRY_RE = re.compile(r"^[A-Za-z]{2}$")
+VALID_AXES = set(range(1, NUM_AXES + 1))
 
 
 # ---------------------------------------------------------------------------
@@ -565,7 +560,7 @@ async def root(request: Request) -> dict:
     if data is None:
         raise HTTPException(
             status_code=503,
-            detail="Backend data not materialized. Run export_isi_backend_v01.py.",
+            detail="Backend data not materialized. Run export_snapshot.py.",
         )
     return data
 
@@ -674,16 +669,25 @@ async def get_country_axes(code: str, request: Request) -> Any:
     if detail is None:
         raise HTTPException(status_code=503, detail=f"Country file for '{code}' not materialized.")
 
+    # TRUTHFULNESS: never strip data quality metadata from axis summaries.
+    # Consumers who see only score + classification without degradation
+    # context may draw incorrect comparative conclusions.
     return {
         "country": detail["country"],
         "country_name": detail["country_name"],
         "isi_composite": detail["isi_composite"],
+        "governance": detail.get("governance"),
         "axes": [
             {
                 "axis_id": a["axis_id"],
                 "axis_slug": a["axis_slug"],
                 "score": a["score"],
-                "classification": a["classification"],
+                "classification": a.get("classification"),
+                "data_quality_flags": a.get("data_quality_flags", []),
+                "degradation_severity": a.get("degradation_severity", 0.0),
+                "confidence": a.get("confidence"),
+                "warnings": a.get("warnings", []),
+                "axis_constraints": a.get("axis_constraints"),
             }
             for a in detail["axes"]
         ],
@@ -741,10 +745,27 @@ async def get_isi(request: Request) -> Any:
 
     Primary comparative-page endpoint. Rate-limited at 120/min (generous).
     Data is served from memory cache; zero blocking I/O after first load.
+
+    TRUTHFULNESS NOTE: The ranking in this response does not yet carry
+    per-country comparability tiers. Countries with severe data quality
+    degradation may appear alongside clean countries with no indicator.
+    Use /country/{code} for full severity/comparability metadata.
     """
     data = _get_or_load("isi", BACKEND_ROOT / "isi.json")
     if data is None:
         raise HTTPException(status_code=503, detail="isi.json not found.")
+    # Inject truthfulness caveat so consumers know limitations
+    if isinstance(data, dict) and "_truthfulness_caveat" not in data:
+        data["_truthfulness_caveat"] = (
+            "INSTITUTIONAL WARNING: This ranking does NOT include per-country "
+            "governance tiers, axis confidence levels, or structural limitation "
+            "metadata. Countries with degraded data, producer inversions, or "
+            "missing logistics appear alongside fully comparable countries "
+            "with no differentiation. Comparing countries at different governance "
+            "tiers is methodologically unsound. Use /country/{code} for full "
+            "governance and comparability context before drawing comparative "
+            "conclusions."
+        )
     return data
 
 
@@ -1239,9 +1260,7 @@ _ENABLE_INTERNAL_VERIFY = os.getenv("ENABLE_INTERNAL_VERIFY", "").strip() == "1"
 
 if _ENABLE_INTERNAL_VERIFY:
     from backend.snapshot_integrity import validate_snapshot as _validate_snapshot
-
-    # Strict regex for methodology param — same as resolver
-    _INTERNAL_METHODOLOGY_RE = re.compile(r"^v[0-9]{1,10}\.[0-9]{1,10}\Z")
+    from backend.constants import METHODOLOGY_RE as _INTERNAL_METHODOLOGY_RE
 
     @app.get("/_internal/snapshot/verify", include_in_schema=False)
     @limiter.limit("10/minute")

@@ -98,18 +98,44 @@ make clean      # remove __pycache__
 
 ```
 backend/
-├── __init__.py            # Package marker
 ├── isi_api_v01.py         # FastAPI app (hardened)
-├── security.py            # Middleware: headers, rate-limit, request-id, manifest
-├── export_isi_backend_v01.py  # Upstream: CSV → JSON materializer
-└── v01/                   # Pre-materialized JSON artifacts (not in git)
-    ├── meta.json
-    ├── axes.json
-    ├── countries.json
-    ├── isi.json
-    ├── country/*.json     # 27 country detail files
-    ├── axis/*.json        # 6 axis detail files
-    └── MANIFEST.json      # SHA-256 integrity manifest
+├── export_snapshot.py     # Snapshot materializer (CSV → JSON)
+├── security.py            # Middleware: headers, rate-limit, request-id
+├── scenario.py            # Scenario simulation engine
+├── severity.py            # Severity model, comparability tiers
+├── axis_result.py         # AxisResult, CompositeResult types
+├── constants.py           # Single source of truth for all constants
+├── methodology.py         # Methodology registry
+├── scope.py               # Country scope abstraction (EU-27 + expansion)
+├── snapshot_cache.py      # Thread-safe bounded snapshot cache
+├── snapshot_resolver.py   # Snapshot resolution (methodology, year) → path
+├── snapshot_integrity.py  # Structural integrity validation
+├── hashing.py             # Deterministic computation hashes
+├── signing.py             # Ed25519 cryptographic signing
+├── hardening.py           # Float safety, Unicode normalization
+├── immutability.py        # Runtime read-only enforcement
+├── log_sanitizer.py       # Path/secret redaction for logs
+├── snapshots/             # Immutable, signed snapshots
+│   └── v1.0/2024/        # v1.0 methodology, 2024 reference year
+└── v01/                   # Legacy pre-materialized JSON (served by API)
+
+pipeline/
+├── config.py              # Central pipeline configuration
+├── schema.py              # BilateralRecord, BilateralDataset
+├── status.py              # Canonical status enums
+├── normalize.py           # Country code normalization, aggregate filter
+├── validate.py            # 12 structural + economic validation checks
+├── orchestrator.py        # Multi-axis pipeline orchestration
+└── ingest/                # Source-specific ingestion modules
+    ├── bis_lbs.py         # BIS Locational Banking Statistics
+    ├── imf_cpis.py        # IMF CPIS portfolio investment
+    ├── comtrade.py        # UN Comtrade bilateral trade
+    ├── sipri.py           # SIPRI arms transfers
+    └── logistics.py       # Eurostat/OECD logistics
+
+scripts/
+├── smoke_test.py          # Boot API and test endpoints
+└── generate_manifest.py   # Generate MANIFEST.json for backend/v01
 ```
 
 ## License

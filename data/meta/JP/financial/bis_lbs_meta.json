@@ -1,0 +1,103 @@
+{
+  "reporter": "JP",
+  "axis": "financial",
+  "source": "bis_lbs",
+  "year_range": [
+    2024,
+    2024
+  ],
+  "n_records": 30,
+  "n_partners": 30,
+  "total_value": 1457531.869,
+  "partners": [
+    "AT",
+    "AU",
+    "BE",
+    "BR",
+    "CA",
+    "CH",
+    "CL",
+    "DE",
+    "DK",
+    "ES",
+    "FI",
+    "FR",
+    "GB",
+    "GG",
+    "GR",
+    "HK",
+    "IE",
+    "IM",
+    "IT",
+    "JE",
+    "KR",
+    "LU",
+    "MO",
+    "MX",
+    "NL",
+    "PH",
+    "SE",
+    "TW",
+    "US",
+    "ZA"
+  ],
+  "validation_status": "WARNING",
+  "validation_errors": [],
+  "validation_warnings": [
+    "W-MISSING-MAJORS: 2 major economies missing as partners: ['CN', 'IN']. Present: ['DE', 'FR', 'GB', 'US']."
+  ],
+  "ingestion_timestamp": "2026-03-22T15:29:21.985557+00:00",
+  "data_hash": "40b154f513a4266c42ee2df952c6b995d02d759b1541f4895145efa4fc07f166",
+  "top_partners": [
+    {
+      "partner": "US",
+      "value": 387776.0,
+      "share": 0.26604976
+    },
+    {
+      "partner": "GB",
+      "value": 373231.0,
+      "share": 0.25607056
+    },
+    {
+      "partner": "FR",
+      "value": 247030.0,
+      "share": 0.16948514
+    },
+    {
+      "partner": "HK",
+      "value": 221833.718,
+      "share": 0.15219819
+    },
+    {
+      "partner": "AU",
+      "value": 39452.301,
+      "share": 0.02706788
+    },
+    {
+      "partner": "TW",
+      "value": 37200.01,
+      "share": 0.0255226
+    },
+    {
+      "partner": "CA",
+      "value": 30524.257,
+      "share": 0.02094243
+    },
+    {
+      "partner": "DE",
+      "value": 28836.0,
+      "share": 0.01978413
+    },
+    {
+      "partner": "CH",
+      "value": 23128.778,
+      "share": 0.01586845
+    },
+    {
+      "partner": "BE",
+      "value": 14239.644,
+      "share": 0.0097697
+    }
+  ]
+}

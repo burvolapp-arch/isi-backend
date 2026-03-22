@@ -99,7 +99,7 @@ before any non-EU country can be processed:
 | `backend/constants.py` | `COUNTRY_NAMES` | 27 EU entries only | Add 12 expansion entries |
 | `backend/methodology.py` | N/A | Framework-agnostic | No change needed |
 | `backend/export_snapshot.py` | Uses `EU27_CODES`, `COUNTRY_NAMES` | EU-27 only | Parameterize by scope |
-| `backend/export_isi_backend_v01.py` | Hardcoded EU-27 list | EU-27 only | Parameterize by scope |
+| `_archive/export_isi_backend_v01.py` | Hardcoded EU-27 list | EU-27 only | N/A — quarantined legacy exporter |
 
 ### 2.4 Country Code Conventions
 
@@ -1065,7 +1065,6 @@ that are consistent across BIS, IMF, UN Comtrade, and SIPRI.
 | `scripts/aggregate_isi_v01.py` | Parameterize country set, remove 27-count assertion | MEDIUM |
 | `backend/constants.py` | Add expansion country codes + names | LOW |
 | `backend/export_snapshot.py` | Parameterize scope (EU-27 or EU-27+12 or custom) | MEDIUM |
-| `backend/export_isi_backend_v01.py` | Parameterize scope | MEDIUM |
 
 ### 5.4 Recommended Architecture
 

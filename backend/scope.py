@@ -18,15 +18,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.constants import EU27_CODES  # noqa: F401 — re-exported
+
 # ---------------------------------------------------------------------------
 # Scope definitions — frozen, deterministic, no runtime mutation
 # ---------------------------------------------------------------------------
-
-EU27_CODES: frozenset[str] = frozenset([
-    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES",
-    "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
-    "NL", "PL", "PT", "RO", "SE", "SI", "SK",
-])
 
 PHASE1_EXPANSION_CODES: frozenset[str] = frozenset([
     "AU", "CN", "GB", "JP", "KR", "NO", "US",
