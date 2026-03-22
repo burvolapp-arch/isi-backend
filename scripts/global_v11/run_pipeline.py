@@ -40,6 +40,11 @@ from backend.severity import (
     check_cross_country_comparability,
     check_structural_class_comparability,
     assign_comparability_tier,
+    compute_tier_segregated_rankings,
+    compute_sensitivity_analysis,
+    validate_known_cases,
+    validate_cross_axis_sanity,
+    enforce_output_integrity,
 )
 
 # Lazy imports for axis modules (same package)
@@ -219,6 +224,54 @@ def export_snapshot(
     # Structural class comparability enforcement (Issue 4)
     structural_class_violations = check_structural_class_comparability(country_classes)
 
+    # --- Institutional-grade additions ---
+
+    # Tier-segregated rankings (Deficiency 6)
+    country_composites_adj: dict[str, float | None] = {}
+    country_results_for_validation: dict[str, dict[str, Any]] = {}
+    country_axes_for_sanity: dict[str, list[dict[str, Any]]] = {}
+    sensitivity_axis_data: list[dict[str, Any]] = []
+
+    for c in composites:
+        cd = c.to_dict()
+        country_composites_adj[c.country] = cd.get("composite_adjusted")
+        country_results_for_validation[c.country] = cd
+
+        # Collect axis data for sanity check and sensitivity
+        axes_dicts = cd.get("axes", [])
+        country_axes_for_sanity[c.country] = axes_dicts
+
+        # Build sensitivity input: (score, data_severity) per axis
+        axis_scores_for_sens = []
+        for ad in axes_dicts:
+            if ad.get("validity") != "INVALID" and ad.get("score") is not None:
+                axis_scores_for_sens.append(
+                    (ad["score"], ad.get("data_severity", 0.0))
+                )
+        if axis_scores_for_sens:
+            sensitivity_axis_data.append({
+                "country": c.country,
+                "axis_scores": axis_scores_for_sens,
+            })
+
+    tier_segregated_rankings = compute_tier_segregated_rankings(
+        country_composites_adj, country_tiers,
+    )
+
+    # Sensitivity analysis (Deficiency 5)
+    sensitivity_summary = compute_sensitivity_analysis(sensitivity_axis_data)
+
+    # External validation (Deficiency 4)
+    known_case_validation = validate_known_cases(country_results_for_validation)
+    cross_axis_sanity = validate_cross_axis_sanity(country_axes_for_sanity)
+
+    # Output integrity enforcement (Deficiency 9)
+    integrity_violations: list[str] = []
+    for c in composites:
+        cd = c.to_dict()
+        violations = enforce_output_integrity(cd)
+        integrity_violations.extend(violations)
+
     snapshot = {
         "methodology_version": METHODOLOGY,
         "scope": SCOPE_ID,
@@ -231,6 +284,16 @@ def export_snapshot(
         "cross_country_comparability_violations": cross_country_violations,
         "structural_class_violations": structural_class_violations,
         "country_tier_summary": country_tiers,
+        "tier_segregated_rankings": tier_segregated_rankings,
+        "sensitivity_analysis": sensitivity_summary,
+        "external_validation": {
+            "known_case_validation": known_case_validation,
+            "cross_axis_sanity": cross_axis_sanity,
+        },
+        "output_integrity": {
+            "violations": integrity_violations,
+            "integrity_pass": len(integrity_violations) == 0,
+        },
         "countries": [c.to_dict() for c in composites],
     }
 

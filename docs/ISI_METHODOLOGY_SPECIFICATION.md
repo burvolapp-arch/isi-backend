@@ -7,6 +7,8 @@
 > **Scope:** ISI v1.1+ severity model, comparability framework, aggregation theory, and interpretation layer
 >
 > **Status:** Authoritative. All parameter choices, functional forms, and thresholds herein are either empirically justified or explicitly declared as normative.
+>
+> **Institutional-Grade Hardening:** This specification has been elevated to withstand IMF/BIS/OECD-level methodological scrutiny. All axiomatic foundations, formal definitions, non-goals, and limitations are explicitly declared.
 
 ---
 
@@ -20,6 +22,13 @@
 6. [Stability and Robustness](#6-stability-and-robustness)
 7. [Interpretation Layer](#7-interpretation-layer)
 8. [Limitations and Residual Risks](#8-limitations-and-residual-risks)
+9. [Axiomatic Foundations](#9-axiomatic-foundations)
+10. [Non-Goals and Explicit Exclusions](#10-non-goals-and-explicit-exclusions)
+11. [Institutional-Grade Hardening: Model B Structural Constraints](#11-institutional-grade-hardening-model-b-structural-constraints)
+12. [Sensitivity Analysis Framework](#12-sensitivity-analysis-framework)
+13. [External Validation Layer](#13-external-validation-layer)
+14. [Shock Simulation Framework](#14-shock-simulation-framework)
+15. [Output Integrity Guarantees](#15-output-integrity-guarantees)
 
 ---
 
@@ -625,6 +634,274 @@ These phrases are not softened, hedged, or qualified. Their purpose is to preven
 **Statement:** ISI v1.1 computes scores for a single cross-sectional snapshot (2022–2024 data). It does not produce time series. Within-country temporal change analysis requires future snapshots computed under identical methodology.
 
 **Residual risk:** A single cross-section cannot distinguish between structural dependence (persistent over time) and cyclical dependence (temporary). A country that has a high ISI score in 2023 may have experienced a transient supply shock, not a permanent structural vulnerability. This limitation is inherent to any single-year index.
+
+---
+
+*End of Methodology Specification — Sections 1–8.*
+
+---
+
+## 9. Axiomatic Foundations
+
+The ISI severity and comparability framework rests on four axioms. Any proposed extension or modification of the methodology MUST preserve these axioms. Violation of any axiom invalidates the downstream comparability guarantees.
+
+### Axiom 1: Monotonicity of Severity
+
+**Statement.** If $F_1 \subseteq F_2$ (flag set inclusion), then $\sigma(F_1) \leq \sigma(F_2)$.
+
+Adding a data quality flag NEVER reduces severity. This guarantees that a country's comparability assessment cannot improve by acquiring additional data problems. The group-aware resolution (max-within-group, sum-across-groups) preserves this property: adding a flag within an existing group either leaves the group max unchanged or increases it; adding a flag in a new group strictly increases the sum.
+
+### Axiom 2: Boundedness
+
+**Statement.** For all valid inputs:
+- $A_{i,a} \in [0, 1]$ (axis scores)
+- $\bar{A}_i \in [0, 1]$ (composite scores)
+- $\sigma(F) \geq 0$ (severity is non-negative)
+- $\omega(\sigma) \in [\omega_{\min}, 1]$ where $\omega_{\min} = 0.1$ (quality weights)
+
+No computation produces unbounded values. Scores are clamped, severity is non-negative, and quality weights are bounded below by $\omega_{\min}$. This prevents pathological composite behavior and ensures all outputs are interpretable.
+
+### Axiom 3: Structural Invariance (Model B)
+
+**Statement.** Structural properties (e.g., PRODUCER_INVERSION) MUST NOT enter the quality weight function $\omega(\cdot)$ used for composite aggregation. Formally:
+
+$$
+\omega_{i,a} = \max\left(e^{-\alpha \cdot \sigma^{(data)}(F_{i,a})}, \omega_{\min}\right)
+$$
+
+where $\sigma^{(data)}(F)$ excludes all flags in STRUCTURAL_FLAGS. Structural severity enters ONLY:
+- The total severity $\sigma^{(total)}(F)$ for comparability tier assignment
+- Ranking eligibility constraints
+- Interpretation flags
+
+**Rationale.** A producer-inverted axis (e.g., Norway on energy) is measured correctly — the HHI computation is valid. The issue is that the import-concentration construct is inapplicable to a net exporter. Reducing this axis's aggregation weight would introduce systematic bias: countries with more producer-inverted axes would systematically have their correctly-measured clean axes overweighted.
+
+### Axiom 4: Non-Comparability is Irreversible Within a Snapshot
+
+**Statement.** If a country is assigned TIER_4 (non-comparable), this assignment CANNOT be reversed, overridden, or softened within the same computation snapshot. TIER_4 implies:
+- $\bar{A}_i^{(adj)} = \text{NULL}$ (adjusted composite is null)
+- $\text{exclude\_from\_rankings} = \text{TRUE}$
+- The country MUST NOT appear in any cross-country ranking
+
+This axiom prevents the creation of "escape hatches" that could allow severely compromised data to masquerade as comparable. The only way to transition from TIER_4 is to resolve the underlying data quality issues and recompute in a future snapshot.
+
+---
+
+## 10. Non-Goals and Explicit Exclusions
+
+The ISI methodology is frequently misunderstood as attempting things it does not attempt. The following are EXPLICITLY not goals of the ISI:
+
+### 10.1 Non-Goal: Measuring Strategic Importance
+
+The ISI measures **concentration** — how diversified a country's import sources are on each strategic axis. It does NOT measure how important those imports are to the economy. A country that imports 0.1% of GDP in semiconductors from a single supplier and a country that imports 30% of GDP in semiconductors from a single supplier would receive the same ISI score on Axis 3 (both have HHI near 1.0). Volume, economic significance, and criticality are outside the ISI scope.
+
+### 10.2 Non-Goal: Forecasting Supply Disruptions
+
+The ISI is a structural snapshot, not a risk forecast. High concentration on a particular supplier does not predict that supplier will fail, impose export controls, or experience disruptions. ISI scores are static cross-sections, not forward-looking risk assessments.
+
+### 10.3 Non-Goal: Providing Policy Recommendations
+
+The ISI framework explicitly avoids policy implications. A high ISI score does not mean a country "should" diversify its imports. Diversification has costs, and the optimal level of concentration depends on factors (transport costs, quality, political relationships) that the ISI does not measure.
+
+### 10.4 Non-Goal: Replacing Expert Judgment
+
+The severity weights, tier thresholds, and classification boundaries are calibrated starting points, not definitive truths. The ISI framework provides a structured, reproducible, transparent quantification. It does NOT claim to replace domain expertise in evaluating specific countries or axes.
+
+### 10.5 Non-Goal: Measuring Absolute Vulnerability
+
+ISI measures **relative concentration**. A country with HHI = 0.05 on all axes is unconcentrated — but this says nothing about whether it is vulnerable to supply chain disruptions. Diversified import sources can all be simultaneously disrupted by a common shock (e.g., pandemic, global financial crisis). Absolute vulnerability requires modeling that is beyond the ISI scope.
+
+---
+
+## 11. Institutional-Grade Hardening: Model B Structural Constraints
+
+### 11.1 The Structural/Data Separation Problem
+
+**Problem.** Prior to institutional hardening, the severity model conflated two fundamentally different types of data quality issues:
+
+1. **Data reliability issues** — problems with the measurement process itself (missing channels, temporal mismatch, granularity loss). These reduce confidence in the numerical value of the score.
+
+2. **Structural position issues** — the measured construct (import concentration) is inapplicable to the country's economic position (producer inversion). The score is numerically correct but semantically misleading.
+
+Treating both identically in the quality weight function $\omega(\cdot)$ creates a contradiction: an axis with clean data but structural inapplicability would be downweighted in the composite, effectively penalizing the country for having a strong export position.
+
+### 11.2 Model B Resolution
+
+**Model B** resolves this by separating the two severity dimensions:
+
+$$
+\sigma^{(total)}_{i,a} = \sigma^{(data)}_{i,a} + \sigma^{(structural)}_{i,a}
+$$
+
+- $\sigma^{(data)}$ enters the quality weight function $\omega(\cdot)$ → affects composite aggregation
+- $\sigma^{(structural)}$ enters comparability tier assignment → affects ranking eligibility and interpretation
+
+The total severity is STILL the sum. But its two components play different roles:
+
+| Component | Affects Aggregation? | Affects Comparability? | Affects Ranking? | Affects Interpretation? |
+|-----------|:-------------------:|:---------------------:|:----------------:|:----------------------:|
+| Data Severity | ✓ | ✓ | ✓ | ✓ |
+| Structural Severity | ✗ | ✓ | ✓ | ✓ |
+
+### 11.3 TIER_4 Nullification
+
+**Invariant (NON-NEGOTIABLE).** If $\tau(i) = \text{TIER\_4}$:
+
+$$
+\bar{A}_i^{(adj)} = \text{NULL}, \quad \text{exclude\_from\_rankings}(i) = \text{TRUE}
+$$
+
+This is implemented as a hard constraint in the code — `CompositeResult.to_dict()` enforces this invariant. `validate_composite_result()` independently verifies it. `enforce_output_integrity()` checks it again at the output layer. **Three independent enforcement points. No escape hatch.**
+
+### 11.4 Ranking Partition System
+
+Countries are partitioned into three ranking universes based on their comparability tier:
+
+| Partition | Tiers | Ranking | Interpretation |
+|-----------|-------|---------|----------------|
+| FULLY_COMPARABLE | TIER_1, TIER_2 | Ranked within partition | Scores reliably differentiated |
+| LIMITED | TIER_3 | Ranked within partition | Scores exist but structurally compromised |
+| NON_COMPARABLE | TIER_4 | NO RANK | Excluded from all ranking |
+
+Cross-partition ranking is methodologically unsound and is NOT produced. A consumer who ranks a TIER_1 country against a TIER_3 country is doing so outside the ISI framework.
+
+---
+
+## 12. Sensitivity Analysis Framework
+
+### 12.1 Purpose
+
+The severity weights are expert-calibrated ordinal judgments (Section 8.5). To demonstrate that the ISI framework is robust to the inherent arbitrariness of these weights, we implement a systematic sensitivity analysis.
+
+### 12.2 Perturbation Protocol
+
+Six perturbation scenarios are applied:
+
+1. **Weights +30%:** All severity weights multiplied by 1.3
+2. **Weights −30%:** All severity weights multiplied by 0.7
+3. **Alpha +30%:** Exponential penalty parameter α multiplied by 1.3
+4. **Alpha −30%:** Exponential penalty parameter α multiplied by 0.7
+5. **Both +30%:** Weights ×1.3 AND α ×1.3 (worst-case for over-penalization)
+6. **Both −30%:** Weights ×0.7 AND α ×0.7 (worst-case for under-penalization)
+
+For each scenario, the adjusted composite is recomputed for all countries, and the resulting rankings are compared against baseline.
+
+### 12.3 Stability Metrics
+
+- **Spearman rank correlation (ρ):** Measures ordinal agreement between baseline and perturbed rankings. ρ = 1.0 → identical ordinal ranking.
+- **Maximum rank shift:** The largest absolute rank change for any country under any perturbation scenario.
+- **Mean absolute deviation (MAD):** Average absolute rank change across all countries and scenarios.
+
+### 12.4 Verdict Classification
+
+| Verdict | Spearman ρ (min) | Max Rank Shift | Interpretation |
+|---------|:---------------:|:--------------:|----------------|
+| ROBUST | ≥ 0.9 | ≤ 1 | Rankings are essentially invariant to parameter choices |
+| SENSITIVE | ≥ 0.7 | ≤ 3 | Some rank shuffling at margins; ordinal structure preserved |
+| UNSTABLE | < 0.7 | > 3 | Rankings are materially affected by parameter choices |
+
+**Acceptance criterion:** An UNSTABLE verdict on a 7-country Phase 1 scope would indicate fundamental calibration problems requiring investigation.
+
+---
+
+## 13. External Validation Layer
+
+### 13.1 Rationale
+
+An index that cannot be externally validated is an index that cannot be trusted. The ISI external validation layer provides three types of empirical anchoring:
+
+### 13.2 Known Case Validation
+
+For countries with well-established economic profiles, the ISI outputs are checked against structural expectations:
+
+| Country | Expected Composite Range | Expected Class | Rationale |
+|---------|:------------------------:|:--------------:|-----------|
+| Germany | [0.10, 0.50] | IMPORTER | Major industrial economy, net importer across most axes |
+| China | [0.05, 0.40] | PRODUCER | Major exporter in critical inputs and defense |
+| Norway | [0.05, 0.45] | BALANCED | Energy exporter, otherwise net importer |
+| Japan | [0.10, 0.55] | IMPORTER | Resource-poor, high external dependency |
+| United States | [0.05, 0.40] | PRODUCER | Energy/defense/materials exporter |
+
+If a country falls outside its expected range or has an unexpected structural class, the validation layer flags a FAIL. This is a sanity check, not a calibration target — the ISI should produce results consistent with known economic realities.
+
+### 13.3 Cross-Axis Sanity Check
+
+No single axis should dominate cross-country variance implausibly. If one axis contributes >60% of total cross-country score variance, this suggests that axis may be capturing a measurement artifact rather than genuine structural diversity.
+
+### 13.4 Validation Output
+
+The validation layer produces a structured `validation_summary` with:
+- Per-case PASS/FAIL/SKIP results
+- Aggregate verdict (PASS if 0 failures, FAIL otherwise)
+- Cross-axis variance contributions and sanity warnings
+
+---
+
+## 14. Shock Simulation Framework
+
+### 14.1 Purpose
+
+The ISI measures **static** bilateral concentration. But policymakers need to understand **dynamic** vulnerability: what happens if a key supplier is removed? The shock simulation layer quantifies single-point-of-failure vulnerability.
+
+### 14.2 Model
+
+For an axis with HHI score $H$ and top supplier with market share $s_1$, the simulated HHI after removing the top supplier under proportional redistribution is:
+
+$$
+H_{\text{after}} = \frac{H - s_1^2}{(1 - s_1)^2}
+$$
+
+This assumes the removed supplier's share is redistributed proportionally among remaining suppliers. The model is applied sequentially for top-2 removal.
+
+### 14.3 Vulnerability Classification
+
+| Class | |ΔH| from top-1 removal | Interpretation |
+|-------|:----------------------:|----------------|
+| LOW | < 0.05 | Minimal single-supplier vulnerability |
+| MODERATE | [0.05, 0.15) | Some concentration in top supplier |
+| HIGH | [0.15, 0.30) | Significant single-point-of-failure risk |
+| CRITICAL | ≥ 0.30 | Dominant-supplier removal fundamentally restructures the axis |
+
+### 14.4 Limitations
+
+The proportional redistribution model is a simplification. In reality:
+- Remaining suppliers may not have capacity to absorb the removed share
+- Prices and trade patterns would adjust endogenously
+- New suppliers may enter the market
+
+The simulation provides an **upper bound on immediate structural impact**, not a forecast of actual post-disruption outcomes.
+
+---
+
+## 15. Output Integrity Guarantees
+
+### 15.1 Required Fields
+
+Every composite output MUST contain the following fields. Absence of any field triggers a hard-fail error:
+
+**Composite-level:** `country`, `country_name`, `isi_composite`, `composite_raw`, `composite_adjusted`, `classification`, `axes_included`, `axes_excluded`, `confidence`, `comparability_tier`, `strict_comparability_tier`, `severity_analysis`, `structural_degradation_profile`, `structural_class`, `stability_analysis`, `interpretation_flags`, `interpretation_summary`, `scope`, `methodology_version`, `warnings`, `axes`, `exclude_from_rankings`, `ranking_partition`.
+
+**Axis-level:** `country`, `axis_id`, `axis_slug`, `score`, `basis`, `validity`, `coverage`, `source`, `warnings`, `channel_a_concentration`, `channel_b_concentration`, `data_quality_flags`, `degradation_severity`, `data_severity`.
+
+### 15.2 Invariant Enforcement
+
+Three independent enforcement layers verify output integrity:
+
+1. **`CompositeResult.to_dict()`** — enforces TIER_4 nullification at construction time
+2. **`validate_composite_result()`** — independent validation of all mandatory fields and invariants
+3. **`enforce_output_integrity()`** — field-by-field completeness check with machine-readable violation reports
+
+Any violation at any layer raises `ValueError` immediately. No silent degradation. No partial outputs.
+
+### 15.3 TIER_4 Nullification Invariant
+
+**Definition.** For any country $i$ with $\tau(i) = \text{TIER\_4}$:
+
+$$
+\bar{A}_i^{(adj)} = \text{NULL} \wedge \text{exclude\_from\_rankings}(i) = \text{TRUE}
+$$
+
+This invariant is checked at all three enforcement layers. It is the ONLY hard-coded behavioral constraint in the output layer (all other behaviors are derived from data and parameters).
 
 ---
 

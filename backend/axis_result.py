@@ -32,10 +32,12 @@ from backend.severity import (
     compute_axis_severity_breakdown,
     compute_country_severity,
     assign_comparability_tier,
+    assign_ranking_partition,
     compute_adjusted_composite,
     compute_stability_analysis,
     build_interpretation,
     classify_structural_class,
+    enforce_output_integrity,
     SEVERITY_WEIGHTS,
 )
 
@@ -317,11 +319,20 @@ class CompositeResult:
         - `comparability_tier` (legacy) and `structural_degradation_profile`
         - `composite_raw` — current unweighted arithmetic mean
         - `composite_adjusted` — degradation-aware weighted composite
+          (NULL for TIER_4 — NON-NEGOTIABLE)
+        - `exclude_from_rankings` — True for TIER_4 countries
+        - `ranking_partition` — FULLY_COMPARABLE / LIMITED / NON_COMPARABLE
         - `severity_analysis` — per-axis and total severity metrics
         - `strict_comparability_tier` — TIER_1/2/3/4 from severity model
         - `stability_analysis` — leave-one-out sensitivity metrics
         - `interpretation_flags` / `interpretation_summary` — mandatory
           human-readable interpretation with explicit warning language
+
+        TIER_4 NULLIFICATION INVARIANT:
+            IF strict_comparability_tier == TIER_4:
+                composite_adjusted = NULL
+                exclude_from_rankings = TRUE
+            This is NON-NEGOTIABLE and CANNOT be overridden.
 
         No composite output can appear "clean" when the underlying
         axis data quality is asymmetric or degraded.
@@ -345,6 +356,7 @@ class CompositeResult:
                     # Use data_severity (not total severity) for aggregation
                     # weights. Structural severity affects comparability
                     # assessment but NOT the quality weight function.
+                    # MODEL B: Structural → HARD CONSTRAINTS, not weights.
                     data_sev = ad["data_severity"]
                     included_axis_scores.append((ad["score"], data_sev))
                     included_axes_for_stability.append(
@@ -357,8 +369,17 @@ class CompositeResult:
         # Strict comparability tier (severity-driven)
         strict_tier = assign_comparability_tier(total_severity)
 
-        # Degradation-adjusted composite (only if raw composite is eligible)
-        if self.isi_composite is not None:
+        # Ranking partition (tier-segregated)
+        ranking_partition = assign_ranking_partition(strict_tier)
+
+        # TIER_4 NULLIFICATION — NON-NEGOTIABLE
+        # If strict_tier == TIER_4: composite_adjusted = NULL,
+        # exclude_from_rankings = TRUE. No exceptions. No overrides.
+        exclude_from_rankings = (strict_tier == "TIER_4")
+
+        # Degradation-adjusted composite (only if raw composite is eligible
+        # AND country is NOT TIER_4)
+        if self.isi_composite is not None and not exclude_from_rankings:
             composite_adjusted = compute_adjusted_composite(included_axis_scores)
         else:
             composite_adjusted = None
@@ -381,12 +402,14 @@ class CompositeResult:
             self.country, axis_dicts,
         )
 
-        return {
+        result = {
             "country": self.country,
             "country_name": self.country_name,
             "isi_composite": self.isi_composite,
             "composite_raw": self.isi_composite,
             "composite_adjusted": composite_adjusted,
+            "exclude_from_rankings": exclude_from_rankings,
+            "ranking_partition": ranking_partition,
             "classification": self.classification,
             "axes_included": self.axes_included,
             "axes_excluded": [dict(e) for e in self.axes_excluded],
@@ -404,6 +427,16 @@ class CompositeResult:
             "warnings": list(self.warnings),
             "axes": axis_dicts,
         }
+
+        # OUTPUT INTEGRITY ENFORCEMENT — hard-fail on violations
+        violations = enforce_output_integrity(result)
+        if violations:
+            raise ValueError(
+                f"Output integrity violation for {self.country}: "
+                + "; ".join(violations)
+            )
+
+        return result
 
 
 def _compute_comparability(
@@ -547,7 +580,7 @@ def validate_composite_result(r: CompositeResult) -> None:
             f"CompositeResult({r.country}): missing strict_comparability_tier"
         )
 
-    # composite_adjusted must be present (may be None for ineligible)
+    # composite_adjusted must be present (may be None for TIER_4 or ineligible)
     if "composite_adjusted" not in d:
         raise ValueError(
             f"CompositeResult({r.country}): missing composite_adjusted"
@@ -567,6 +600,29 @@ def validate_composite_result(r: CompositeResult) -> None:
     if "interpretation_summary" not in d:
         raise ValueError(
             f"CompositeResult({r.country}): missing interpretation_summary"
+        )
+
+    # TIER_4 nullification invariant — hard enforcement
+    if d["strict_comparability_tier"] == "TIER_4":
+        if d.get("composite_adjusted") is not None:
+            raise ValueError(
+                f"CompositeResult({r.country}): TIER_4 but composite_adjusted "
+                f"is not NULL — violates TIER_4 nullification invariant"
+            )
+        if not d.get("exclude_from_rankings"):
+            raise ValueError(
+                f"CompositeResult({r.country}): TIER_4 but exclude_from_rankings "
+                f"is not TRUE — violates ranking exclusion invariant"
+            )
+
+    # exclude_from_rankings and ranking_partition must be present
+    if "exclude_from_rankings" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing exclude_from_rankings"
+        )
+    if "ranking_partition" not in d:
+        raise ValueError(
+            f"CompositeResult({r.country}): missing ranking_partition"
         )
 
     # Severity must be consistent with flags:
