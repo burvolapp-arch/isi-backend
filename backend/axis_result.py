@@ -29,7 +29,6 @@ from backend.constants import ROUND_PRECISION
 from backend.severity import (
     compute_axis_severity,
     compute_axis_data_severity,
-    compute_axis_severity_breakdown,
     compute_country_severity,
     assign_comparability_tier,
     assign_ranking_partition,
@@ -38,8 +37,53 @@ from backend.severity import (
     build_interpretation,
     classify_structural_class,
     enforce_output_integrity,
-    SEVERITY_WEIGHTS,
 )
+
+
+# ---------------------------------------------------------------------------
+# Axis-level interpretation constraints (populated from AXIS_REGISTRY)
+# ---------------------------------------------------------------------------
+# Every axis output MUST carry these constraints so consumers cannot
+# misinterpret the score. This is NOT optional metadata — it is a
+# contractual obligation of the output schema.
+
+def _get_axis_constraints(axis_slug: str) -> dict[str, Any]:
+    """Retrieve axis-level interpretation constraints from AXIS_REGISTRY.
+
+    Returns a dict with value_type, value_label, scope, exclusions,
+    interpretation_note, confidence_baseline, and window_semantics.
+
+    If the axis is not found in the registry, returns a minimal dict
+    with explicit "UNKNOWN" markers (never silently omit).
+    """
+    try:
+        from pipeline.config import AXIS_REGISTRY
+        for _axis_id, info in AXIS_REGISTRY.items():
+            if info["slug"] == axis_slug:
+                return {
+                    "value_type": info.get("value_type", "UNKNOWN"),
+                    "value_label": info.get("value_label", "Unknown unit"),
+                    "scope": info.get("scope", "Not specified"),
+                    "exclusions": info.get("exclusions", []),
+                    "interpretation_note": info.get("interpretation_note", ""),
+                    "confidence_baseline": info.get("confidence_baseline", 0.5),
+                    "window_type": info.get("window_type", "unknown"),
+                    "window_semantics": info.get("window_semantics", ""),
+                    "temporal_sensitivity": info.get("temporal_sensitivity", "unknown"),
+                }
+    except ImportError:
+        pass
+    return {
+        "value_type": "UNKNOWN",
+        "value_label": "Unknown unit",
+        "scope": "Not specified — AXIS_REGISTRY unavailable",
+        "exclusions": [],
+        "interpretation_note": "Axis constraints could not be loaded.",
+        "confidence_baseline": 0.5,
+        "window_type": "unknown",
+        "window_semantics": "",
+        "temporal_sensitivity": "unknown",
+    }
 
 # ---------------------------------------------------------------------------
 # Enums (string-based for JSON compatibility)
@@ -117,10 +161,17 @@ class AxisResult:
         Includes `degradation_severity` — a float quantifying the total
         severity of all data quality issues on this axis. 0.0 = clean.
         Higher values indicate greater interpretive compromise.
+
+        Includes `axis_constraints` — mandatory interpretability metadata
+        specifying value_type, scope, exclusions, and interpretation notes.
+        Consumers MUST read axis_constraints before using the score.
+        A defense score measured in TIV is NOT comparable to a trade score
+        measured in USD — the axis_constraints make this explicit.
         """
         flags = _build_quality_flags(self)
         severity = compute_axis_severity(flags)
         data_severity = compute_axis_data_severity(flags)
+        constraints = _get_axis_constraints(self.axis_slug)
         return {
             "country": self.country,
             "axis_id": self.axis_id,
@@ -136,6 +187,7 @@ class AxisResult:
             "data_quality_flags": flags,
             "degradation_severity": severity,
             "data_severity": data_severity,
+            "axis_constraints": constraints,
         }
 
 

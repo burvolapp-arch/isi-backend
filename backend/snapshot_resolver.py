@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,9 +39,7 @@ SNAPSHOTS_ROOT: Path = Path(__file__).resolve().parent / "snapshots"
 # Input allowlists — reject adversarial inputs before filesystem access
 # ---------------------------------------------------------------------------
 
-METHODOLOGY_RE: re.Pattern[str] = re.compile(r"^v[0-9]{1,10}\.[0-9]{1,10}\Z")
-"""Methodology version must match ``^v[0-9]{1,10}\\.[0-9]{1,10}\\Z`` exactly.
-Rejects traversal, unicode, spaces, and any non-standard format."""
+from backend.constants import METHODOLOGY_RE  # noqa: E402
 
 MIN_VALID_YEAR: int = 2000
 MAX_VALID_YEAR: int = 2100

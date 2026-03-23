@@ -4,6 +4,7 @@
 **Author:** Systems Architecture (automated)  
 **Date:** 2026-02-21  
 **Status:** DRAFT — Pre-implementation discovery  
+**Note:** References to `export_isi_backend_v01.py` describe the v0.1 exporter, now quarantined at `_archive/`. Its successor is `backend/export_snapshot.py`.  
 **Scope:** Backend only. No frontend. No cosmetic changes.
 
 ---

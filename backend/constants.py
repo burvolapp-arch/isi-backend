@@ -9,6 +9,8 @@ Design lifetime: 20 years. Do not add transient configuration here.
 
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # Precision
 # ---------------------------------------------------------------------------
@@ -103,3 +105,17 @@ COUNTRY_NAMES: dict[str, str] = {
     "PL": "Poland", "PT": "Portugal", "RO": "Romania",
     "SE": "Sweden", "SI": "Slovenia", "SK": "Slovakia",
 }
+
+# ---------------------------------------------------------------------------
+# Input validation regexes — shared across cache, resolver, API
+# ---------------------------------------------------------------------------
+
+METHODOLOGY_RE: re.Pattern[str] = re.compile(r"^v[0-9]{1,10}\.[0-9]{1,10}\Z")
+"""Methodology version must match ``^v[0-9]{1,10}\\.[0-9]{1,10}\\Z`` exactly.
+Rejects traversal, unicode, spaces, and any non-standard format."""
+
+COUNTRY_CODE_RE: re.Pattern[str] = re.compile(r"^[A-Z]{2}$")
+"""Strict ISO 3166-1 alpha-2 uppercase. Two uppercase ASCII letters only."""
+
+AXIS_ID_RE: re.Pattern[str] = re.compile(r"^[1-9]$")
+"""Single digit 1-9 for axis identifiers."""

@@ -1,0 +1,19 @@
+{
+  "reporter": "JP",
+  "run_time": "2026-03-22T15:29:21.972757+00:00",
+  "elapsed_seconds": 75.220101,
+  "axis_statuses": {
+    "financial_bis": "WARNING",
+    "financial_cpis": "PASS",
+    "energy": "PASS",
+    "technology": "PASS",
+    "defense": "STRUCTURAL_LIMITATION",
+    "critical_inputs": "PASS",
+    "logistics": "STRUCTURAL_LIMITATION"
+  },
+  "all_acceptable": true,
+  "n_pass": 4,
+  "n_warning": 1,
+  "n_structural_limitation": 2,
+  "n_fail": 0
+}

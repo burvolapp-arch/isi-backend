@@ -1,0 +1,49 @@
+{
+  "source": "sipri",
+  "description": "SIPRI Arms Transfers Database — Trade Register export",
+  "version": "2.0",
+  "files": [
+    {
+      "filename": "trade-register.csv",
+      "sha256": "5555d4943d19747d7dbc27fb7c8551758616b2b7a0d61dc4f62e36901970b043",
+      "encoding": "utf-8",
+      "metadata_lines": 11,
+      "column_header_line": 12,
+      "columns": 17,
+      "data_rows": 5532,
+      "download_date": "2026-03-22",
+      "sipri_generated": "22 Mar 2026",
+      "recipients": "Global (172 unique recipient names)",
+      "suppliers": "Global (69 unique supplier names)",
+      "year_range_label": "2020-2025",
+      "pipeline_year_range": [2020, 2025],
+      "status": "canonical"
+    },
+    {
+      "filename": "sipri_trade_register_2019_2024.csv",
+      "sha256": "2b321c52e9948f230c808bd44bd40e7b357797cd54ae825ea962a7777af5d43d",
+      "encoding": "latin-1",
+      "metadata_lines": 11,
+      "column_header_line": 12,
+      "columns": 16,
+      "data_rows": 426,
+      "download_date": "2026-02-07",
+      "sipri_generated": "2026-02-07T18:33:58",
+      "recipients": "EU-27 minus Slovakia (26 countries)",
+      "year_range_label": "2019-2024",
+      "pipeline_year_range": [2019, 2024],
+      "status": "deprecated"
+    }
+  ],
+  "country_name_mapping_version": "2.0",
+  "notes": [
+    "Raw files are NEVER modified. New downloads get new entries.",
+    "Pipeline filters deliveries by SIPRI_YEAR_RANGE from config.py.",
+    "Canonical file: trade-register.csv (global, 2020-2025).",
+    "Deprecated file: sipri_trade_register_2019_2024.csv (EU-27 only, 2019-2024).",
+    "TIV distributed equally across delivery years within a single order.",
+    "Unmapped supplier/recipient names are dropped with audit.",
+    "Non-state entities (Hezbollah, NATO**, etc.) mapped to __NONSTATE__ and dropped.",
+    "Country name variants (Turkiye, UAE, Viet Nam, eSwatini) mapped in SIPRI_TO_ISO2."
+  ]
+}

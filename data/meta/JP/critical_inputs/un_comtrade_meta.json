@@ -1,0 +1,140 @@
+{
+  "reporter": "JP",
+  "axis": "critical_inputs",
+  "source": "un_comtrade",
+  "year_range": [
+    2022,
+    2024
+  ],
+  "n_records": 454,
+  "n_partners": 69,
+  "total_value": 25354930688.908,
+  "partners": [
+    "AE",
+    "AL",
+    "AM",
+    "AR",
+    "AT",
+    "AU",
+    "BE",
+    "BG",
+    "BO",
+    "BR",
+    "BY",
+    "CA",
+    "CH",
+    "CL",
+    "CN",
+    "CO",
+    "CZ",
+    "DE",
+    "DK",
+    "EE",
+    "ES",
+    "FI",
+    "FR",
+    "GA",
+    "GB",
+    "GR",
+    "HK",
+    "ID",
+    "IE",
+    "IL",
+    "IN",
+    "IS",
+    "IT",
+    "KR",
+    "KW",
+    "KZ",
+    "LA",
+    "LK",
+    "LV",
+    "MA",
+    "MG",
+    "MX",
+    "MY",
+    "MZ",
+    "NL",
+    "NO",
+    "NZ",
+    "OM",
+    "PH",
+    "PK",
+    "PL",
+    "PT",
+    "QA",
+    "RO",
+    "RU",
+    "SE",
+    "SG",
+    "SI",
+    "SL",
+    "SN",
+    "TH",
+    "TR",
+    "UA",
+    "US",
+    "UZ",
+    "VN",
+    "ZA",
+    "ZM",
+    "ZW"
+  ],
+  "validation_status": "PASS",
+  "validation_errors": [],
+  "validation_warnings": [],
+  "ingestion_timestamp": "2026-03-22T15:30:37.177519+00:00",
+  "data_hash": "90457e782c04e52178cd5483a52313e25db370af03a808c3d81e929a11487bf9",
+  "top_partners": [
+    {
+      "partner": "ZA",
+      "value": 11507958682.784,
+      "share": 0.45387459
+    },
+    {
+      "partner": "CN",
+      "value": 3583668127.9039993,
+      "share": 0.14134009
+    },
+    {
+      "partner": "US",
+      "value": 2745907045.202,
+      "share": 0.10829874
+    },
+    {
+      "partner": "RU",
+      "value": 1475379050.3540006,
+      "share": 0.05818904
+    },
+    {
+      "partner": "CL",
+      "value": 1232679247.6799998,
+      "share": 0.04861694
+    },
+    {
+      "partner": "DE",
+      "value": 603769921.166,
+      "share": 0.02381272
+    },
+    {
+      "partner": "AR",
+      "value": 420843970.695,
+      "share": 0.01659811
+    },
+    {
+      "partner": "FI",
+      "value": 404765493.722,
+      "share": 0.01596398
+    },
+    {
+      "partner": "AU",
+      "value": 389777545.74799997,
+      "share": 0.01537285
+    },
+    {
+      "partner": "BE",
+      "value": 337910124.96800005,
+      "share": 0.0133272
+    }
+  ]
+}

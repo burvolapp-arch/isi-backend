@@ -40,7 +40,10 @@ class TestEU27Codes:
     def test_is_frozenset(self):
         assert isinstance(EU27_CODES, frozenset)
 
-    def test_greece_is_el(self):
+    def test_greece_is_el_in_backend(self):
+        """Backend v01 still uses Eurostat's EL for Greece.
+        The pipeline uses ISO-standard GR (see pipeline.config.EU27_ISO2).
+        Backend migration to GR will happen in v02."""
         assert "EL" in EU27_CODES
         assert "GR" not in EU27_CODES
 

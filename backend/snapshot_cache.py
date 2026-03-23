@@ -33,7 +33,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -54,17 +53,12 @@ MAX_ARTIFACTS_PER_SNAPSHOT: int = 50
 hash_summary + 6 axes + 27 countries) — 50 gives safe headroom.
 Prevents unbounded memory growth from malformed artifact keys."""
 
-# Strict allowlist regex for methodology version strings.
-# Only vN.M format accepted — no traversal, no unicode, no spaces.
-# Uses [0-9] (not \d which matches Unicode digits) with {1,10} length cap.
-METHODOLOGY_RE: re.Pattern[str] = re.compile(r"^v[0-9]{1,10}\.[0-9]{1,10}\Z")
-"""Methodology version must match ``^v[0-9]{1,10}\\.[0-9]{1,10}\\Z`` exactly."""
-
-# Country code allowlist regex (strict ISO 3166-1 alpha-2 uppercase)
-COUNTRY_CODE_RE: re.Pattern[str] = re.compile(r"^[A-Z]{2}$")
-
-# Axis ID allowlist regex (single digit 1-9)
-AXIS_ID_RE: re.Pattern[str] = re.compile(r"^[1-9]$")
+# Canonical regexes — imported from constants (single source of truth)
+from backend.constants import (  # noqa: E402
+    METHODOLOGY_RE,
+    COUNTRY_CODE_RE,
+    AXIS_ID_RE,
+)
 
 
 # ---------------------------------------------------------------------------

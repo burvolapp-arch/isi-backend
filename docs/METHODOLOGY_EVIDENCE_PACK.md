@@ -37,7 +37,7 @@
 | `backend/snapshot_integrity.py` | — | Manifest + hash verification at startup |
 | `backend/verify_snapshot.py` | — | CLI tool for offline snapshot verification |
 | `backend/reproduce_snapshot.py` | — | Deterministic snapshot reproduction |
-| `backend/export_isi_backend_v01.py` | 1161 | Legacy exporter — produces `backend/v01/` artifacts from processed CSVs |
+| `_archive/export_isi_backend_v01.py` | 1161 | Legacy v0.1 exporter — quarantined; replaced by `export_snapshot.py` |
 | `backend/export_snapshot.py` | 741 | Snapshot materializer — produces `backend/snapshots/v1.0/2024/` artifacts, includes Ed25519 signing |
 | `backend/security.py` | — | Security headers, rate limiting, CORS configuration |
 | `backend/hardening.py` | — | Request validation, size limits, middleware |
@@ -83,7 +83,7 @@
 
 ### 2.1 Legacy Layer: `backend/v01/`
 
-Produced by `backend/export_isi_backend_v01.py`. 39 files total.
+Produced by the legacy exporter (now quarantined at `_archive/export_isi_backend_v01.py`). 39 files total.
 
 ```
 backend/v01/

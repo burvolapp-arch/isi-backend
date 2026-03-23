@@ -1,0 +1,175 @@
+{
+  "reporter": "JP",
+  "axis": "critical_inputs",
+  "source": "un_comtrade",
+  "overall_status": "PASS",
+  "n_records": 454,
+  "n_partners": 69,
+  "total_value": 25354930688.908,
+  "data_hash": "90457e782c04e52178cd5483a52313e25db370af03a808c3d81e929a11487bf9",
+  "checks": [
+    {
+      "check": "schema_compliance",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "n_violations": 0
+      }
+    },
+    {
+      "check": "self_trade_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "n_self_trades": 0
+      }
+    },
+    {
+      "check": "aggregate_detection",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "aggregates_found": 0,
+        "aggregate_records": []
+      }
+    },
+    {
+      "check": "sum_integrity_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "total_value": 25354930688.908,
+        "n_records": 454,
+        "n_negative": 0,
+        "n_zero": 0
+      }
+    },
+    {
+      "check": "partner_count_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "n_partners": 69,
+        "reporter": "JP",
+        "source": "un_comtrade",
+        "threshold": 20,
+        "threshold_type": "major_economy"
+      }
+    },
+    {
+      "check": "dominance_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "dominant_partner": "ZA",
+        "dominant_share": 0.45387459,
+        "dominant_value": 11507958682.784,
+        "total_value": 25354930688.908
+      }
+    },
+    {
+      "check": "missing_key_partners_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "expected_majors": [
+          "CN",
+          "DE",
+          "FR",
+          "GB",
+          "IN",
+          "US"
+        ],
+        "present_majors": [
+          "CN",
+          "DE",
+          "FR",
+          "GB",
+          "IN",
+          "US"
+        ],
+        "missing_majors": [],
+        "n_present": 6,
+        "n_expected": 6
+      }
+    },
+    {
+      "check": "duplicate_records_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "n_duplicate_keys": 0
+      }
+    },
+    {
+      "check": "year_coverage_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "expected_range": [
+          2022,
+          2024
+        ],
+        "years_found": [
+          2022,
+          2023,
+          2024
+        ],
+        "out_of_range": []
+      }
+    },
+    {
+      "check": "economic_sanity_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "source": "un_comtrade",
+        "total_value": 25354930688.908,
+        "reporter": "JP",
+        "n_partners": 69,
+        "expected_partners": [
+          "CN",
+          "DE",
+          "US"
+        ],
+        "missing_expected": []
+      }
+    },
+    {
+      "check": "coverage_ratio_check",
+      "status": "PASS",
+      "errors": [],
+      "warnings": [],
+      "details": {
+        "top_10_share": 0.895394,
+        "top_10_value": 22702659210.22,
+        "total_value": 25354930688.91,
+        "n_partners": 69,
+        "top_10_partners": [
+          "ZA",
+          "CN",
+          "US",
+          "RU",
+          "CL",
+          "DE",
+          "AR",
+          "FI",
+          "AU",
+          "BE"
+        ]
+      }
+    }
+  ],
+  "errors": [],
+  "warnings": []
+}
