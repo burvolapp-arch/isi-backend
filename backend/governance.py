@@ -19,6 +19,14 @@ NO score modification happens here. This module governs
 INTERPRETATION, COMPARABILITY, RANKING ELIGIBILITY, and EXPORT
 PERMISSION — not the underlying values.
 
+Calibration status (see backend/calibration.py for full registry):
+    - Axis confidence baselines: SEMI_EMPIRICAL (data-informed, judgmental magnitude)
+    - Confidence penalties: mostly HEURISTIC (expert judgment)
+    - Confidence level thresholds: HEURISTIC (not calibrated to external quality measures)
+    - Governance tier rules: HEURISTIC ordering (face-valid, not empirically validated)
+    - Composite eligibility thresholds: STRUCTURAL_NORMATIVE (design choices)
+    - Producer inversion registry: SEMI_EMPIRICAL (based on trade position data)
+
 Design contract:
     - assess_country_governance() is the SINGLE entry point for
       country-level governance classification.
@@ -85,6 +93,8 @@ GOVERNANCE_TIERS = (
 CONFIDENCE_LEVELS = ("HIGH", "MODERATE", "LOW", "MINIMAL")
 
 # Confidence baseline per axis (from AXIS_REGISTRY, codified here for governance)
+# Calibration class: SEMI_EMPIRICAL — informed by source coverage data,
+# but magnitudes are judgmental. See backend/calibration.py for full evidence basis.
 AXIS_CONFIDENCE_BASELINES: dict[int, float] = {
     1: 0.75,  # Financial: BIS+CPIS dual-channel, ~30 reporting countries
     2: 0.80,  # Energy: Comtrade, good coverage
@@ -95,6 +105,8 @@ AXIS_CONFIDENCE_BASELINES: dict[int, float] = {
 }
 
 # Confidence penalties — each flag reduces confidence by this amount
+# Calibration class: mostly HEURISTIC. See backend/calibration.py for
+# per-penalty evidence basis and falsifiability criteria.
 CONFIDENCE_PENALTIES: dict[str, float] = {
     "SINGLE_CHANNEL_A": 0.20,
     "SINGLE_CHANNEL_B": 0.20,
@@ -108,6 +120,8 @@ CONFIDENCE_PENALTIES: dict[str, float] = {
 }
 
 # Confidence level thresholds (confidence_score → level)
+# Calibration class: HEURISTIC — not calibrated against external
+# reliability measures. See backend/calibration.py for falsifiability.
 CONFIDENCE_THRESHOLDS: list[tuple[float, str]] = [
     (0.65, "HIGH"),
     (0.45, "MODERATE"),
@@ -515,6 +529,13 @@ def assess_country_governance(
         "axis_confidences": axis_confidences,
         "structural_limitations": limitations,
         "governance_interpretation": interpretation,
+        "calibration_note": (
+            "This governance assessment is based on structured expert "
+            "judgment. Thresholds are documented with calibration classes "
+            "(EMPIRICAL/SEMI_EMPIRICAL/HEURISTIC/STRUCTURAL_NORMATIVE) "
+            "in backend/calibration.py. See that module for evidence "
+            "basis and falsifiability criteria for every threshold."
+        ),
     }
 
 

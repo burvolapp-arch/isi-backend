@@ -94,6 +94,8 @@ Each axis receives an independent confidence assessment based on source coverage
 
 No baseline exceeds 0.90. Nothing in this system is that reliable.
 
+**Calibration note:** All baselines are classified as SEMI_EMPIRICAL — informed by source coverage data but with judgmental magnitude. See `docs/CALIBRATION_AND_FALSIFIABILITY.md` for full evidence basis and falsifiability criteria for each threshold.
+
 ### Confidence Penalties
 
 | Flag | Penalty | Effect |
@@ -260,6 +262,7 @@ Governance consumes the severity model's outputs (severity_total, comparability_
 | Date | Change | Tests |
 |------|--------|-------|
 | 2025 | Initial governance model — 4 tiers, axis confidence, producer inversion, logistics limitation, composite eligibility, truthfulness contract, export gate | 74 tests |
+| 2025 | Calibration + falsifiability layer — all thresholds classified (EMPIRICAL/SEMI_EMPIRICAL/HEURISTIC/STRUCTURAL_NORMATIVE), falsifiability criteria for all mechanisms, country eligibility registry, sensitivity analysis, external benchmark hooks, pseudo-rigor self-audit. See `docs/CALIBRATION_AND_FALSIFIABILITY.md` and `backend/calibration.py`. | +87 tests |
 
 ---
 

@@ -109,6 +109,12 @@ from backend.snapshot_resolver import (  # noqa: I001, E402
     resolve_snapshot,
 )
 
+from backend.snapshot_diff import (  # noqa: I001, E402
+    compare_snapshots,
+    load_snapshot_country,
+    _isi_country_map,
+)
+
 from backend.snapshot_cache import SnapshotCache  # noqa: I001, E402
 
 from backend.constants import (  # noqa: I001, E402
@@ -1248,6 +1254,153 @@ async def country_history(
             "methodology_version": methodology_version,
             "years_count": len(data_points),
             "years": data_points,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Snapshot Differential Analysis endpoint (SYSTEM 3)
+# ---------------------------------------------------------------------------
+
+@app.get("/diff/{version_a}/{version_b}")
+@limiter.limit("20/minute")
+async def snapshot_diff(
+    version_a: str,
+    version_b: str,
+    request: Request,
+    methodology: str | None = None,
+) -> JSONResponse:
+    """Compare two snapshot years and produce a differential report.
+
+    Path parameters:
+        version_a: Earlier year (e.g., 2023).
+        version_b: Later year (e.g., 2024).
+
+    Query parameters:
+        methodology: Methodology version (default: latest).
+
+    Returns a full diff with per-country composite/rank/governance/usability
+    deltas, root cause analysis, and global summary.
+
+    Note: version_a and version_b are YEARS within the same methodology.
+    Cross-methodology diffs use the methodology query parameter for
+    version_a, and detect methodology changes when the ISI JSON
+    contains different methodology_version fields.
+    """
+    request_id: str = getattr(request.state, "request_id", "unknown")
+
+    # Parse years
+    try:
+        year_a = int(version_a)
+        year_b = int(version_b)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="version_a and version_b must be integer years.",
+        )
+    if not (2000 <= year_a <= 2100 and 2000 <= year_b <= 2100):
+        raise HTTPException(
+            status_code=400,
+            detail="Years must be in range 2000-2100.",
+        )
+    if year_a == year_b:
+        raise HTTPException(
+            status_code=400,
+            detail="version_a and version_b must be different years.",
+        )
+
+    # Resolve methodology
+    try:
+        methodology_version = methodology or get_latest_methodology_version()
+        get_methodology(methodology_version)  # validate exists
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown methodology version: '{methodology}'",
+        )
+
+    # Resolve both snapshots
+    try:
+        ctx_a = resolve_snapshot(methodology=methodology_version, year=year_a)
+    except SnapshotNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Snapshot not found: {methodology_version}/{year_a}",
+        )
+    try:
+        ctx_b = resolve_snapshot(methodology=methodology_version, year=year_b)
+    except SnapshotNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Snapshot not found: {methodology_version}/{year_b}",
+        )
+
+    # Load ISI JSONs
+    isi_a = _snapshot_cache.get_artifact(
+        methodology_version=ctx_a.methodology_version,
+        year=ctx_a.year,
+        artifact="isi",
+        snapshot_dir=ctx_a.path,
+    )
+    isi_b = _snapshot_cache.get_artifact(
+        methodology_version=ctx_b.methodology_version,
+        year=ctx_b.year,
+        artifact="isi",
+        snapshot_dir=ctx_b.path,
+    )
+
+    if isi_a is None or isi_b is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load snapshot ISI data.",
+        )
+
+    # Load per-country details for axis-level diffs
+    countries_a_map = _isi_country_map(isi_a)
+    countries_b_map = _isi_country_map(isi_b)
+    all_countries = set(countries_a_map.keys()) | set(countries_b_map.keys())
+
+    country_details_a: dict[str, dict[str, Any]] = {}
+    country_details_b: dict[str, dict[str, Any]] = {}
+    for country in all_countries:
+        try:
+            detail_a = load_snapshot_country(ctx_a.path, country)
+            if detail_a:
+                country_details_a[country] = detail_a
+        except Exception:
+            pass
+        try:
+            detail_b = load_snapshot_country(ctx_b.path, country)
+            if detail_b:
+                country_details_b[country] = detail_b
+        except Exception:
+            pass
+
+    # Compute diff
+    try:
+        diff_result = compare_snapshots(
+            snapshot_a=isi_a,
+            snapshot_b=isi_b,
+            country_details_a=country_details_a if country_details_a else None,
+            country_details_b=country_details_b if country_details_b else None,
+        )
+    except Exception as exc:
+        logger.error(json.dumps({
+            "event": "diff_computation_error",
+            "request_id": request_id,
+            "error_type": type(exc).__name__,
+        }))
+        raise HTTPException(
+            status_code=500,
+            detail="Diff computation failed.",
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "diff": diff_result,
+            "version_a": {"methodology": methodology_version, "year": year_a},
+            "version_b": {"methodology": methodology_version, "year": year_b},
         },
     )
 

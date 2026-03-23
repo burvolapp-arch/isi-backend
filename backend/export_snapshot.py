@@ -72,6 +72,8 @@ from backend.severity import (
     compute_country_severity,
     assign_comparability_tier,
 )
+from backend.falsification import assess_country_falsification
+from backend.eligibility import classify_decision_usability
 from backend.signing import (
     SIGNATURE_FILENAME,
     load_private_key,
@@ -250,7 +252,9 @@ def build_isi_json(
 ) -> dict:
     """Build isi.json: composite scores for all 27 countries.
 
-    Response shape matches existing backend/v01/isi.json exactly.
+    Response shape matches existing backend/v01/isi.json exactly,
+    with added per-country governance_tier and ranking_eligible
+    fields (TASK 2/10 hardening).
     """
     rows = []
     for country in EU27_SORTED:
@@ -270,6 +274,38 @@ def build_isi_json(
         else:
             composite = None
 
+        # ── Per-country governance annotation (TASK 2/10) ──
+        # Compute lightweight governance tier so the ranking list
+        # is NOT undifferentiated. Full governance detail remains
+        # in /country/{code}.
+        producer_info = PRODUCER_INVERSION_REGISTRY.get(country, None)
+        inverted_axes = producer_info["inverted_axes"] if producer_info else []
+        axis_results_for_gov: list[dict[str, Any]] = []
+        for axis_num in range(1, NUM_AXES + 1):
+            flags: list[str] = []
+            if axis_num in inverted_axes:
+                flags.append("PRODUCER_INVERSION")
+            has_data = all_scores.get(axis_num, {}).get(country) is not None
+            axis_results_for_gov.append({
+                "axis_id": axis_num,
+                "data_quality_flags": flags,
+                "is_proxy": axis_num == LOGISTICS_AXIS_ID,
+                "validity": "VALID" if has_data else "INVALID",
+            })
+        # Severity for governance assessment
+        gov_sev_total = sum(
+            compute_axis_severity(ar["data_quality_flags"])
+            for ar in axis_results_for_gov
+            if ar["validity"] == "VALID"
+        )
+        gov_tier_strict = assign_comparability_tier(gov_sev_total)
+        gov = assess_country_governance(
+            country=country,
+            axis_results=axis_results_for_gov,
+            severity_total=gov_sev_total,
+            strict_comparability_tier=gov_tier_strict,
+        )
+
         row = {
             "country": country,
             "country_name": COUNTRY_NAMES.get(country, country),
@@ -280,6 +316,18 @@ def build_isi_json(
         row["isi_composite"] = composite
         row["classification"] = classify(composite, methodology_version) if composite is not None else None
         row["complete"] = complete
+        # ── Governance fields propagated into ranking list ──
+        row["governance_tier"] = gov["governance_tier"]
+        row["ranking_eligible"] = gov["ranking_eligible"]
+        row["cross_country_comparable"] = gov["cross_country_comparable"]
+        # ── Layer 3: decision usability class for ISI ranking context ──
+        try:
+            usability = classify_decision_usability(
+                country=country, governance_result=gov,
+            )
+            row["decision_usability_class"] = usability["decision_usability_class"]
+        except Exception:
+            row["decision_usability_class"] = "NOT_ASSESSED"
         rows.append(row)
 
     # Sort: descending by composite, tie-break alphabetical by country (D-2 fix)
@@ -300,13 +348,14 @@ def build_isi_json(
             "mean": round(sum(vals) / len(vals), ROUND_PRECISION) if vals else None,
         },
         "_truthfulness_caveat": (
-            "This ranking does NOT include per-country governance tiers, "
-            "axis confidence levels, or structural limitation metadata. "
-            "Countries with degraded data, producer inversions, or missing "
-            "logistics may appear alongside fully comparable countries. "
-            "Use /country/{code} for full governance and comparability context. "
-            "Comparing countries at different governance tiers is "
-            "methodologically unsound."
+            "Each country row now includes governance_tier, ranking_eligible, "
+            "and cross_country_comparable fields. Countries at different "
+            "governance tiers should NOT be directly compared. "
+            "Use /country/{code} for full governance context including "
+            "per-axis confidence, structural limitations, and comparability "
+            "analysis. 'Ranking-eligible' is a THEORETICAL classification "
+            "based on internal governance rules, not an empirical quality "
+            "guarantee."
         ),
         "countries": rows,
     }
@@ -420,7 +469,51 @@ def build_country_json(
         "strict_comparability_tier": strict_tier,
         "governance": governance,
         "axes": axes_detail,
+        # ── LAYER 2 + 3 integration: falsification and decision usability ──
+        "falsification": _compute_country_falsification(country, governance),
+        "decision_usability": _compute_decision_usability(country, governance),
     }
+
+
+def _compute_country_falsification(
+    country: str,
+    governance: dict[str, Any],
+) -> dict[str, Any]:
+    """Compute falsification assessment for a country's governance output.
+
+    Wraps backend.falsification.assess_country_falsification with
+    graceful error handling for export context.
+    """
+    try:
+        return assess_country_falsification(country, governance)
+    except Exception:
+        return {
+            "country": country,
+            "overall_flag": "NOT_ASSESSED",
+            "error": "Falsification assessment failed during export",
+        }
+
+
+def _compute_decision_usability(
+    country: str,
+    governance: dict[str, Any],
+) -> dict[str, Any]:
+    """Compute decision usability classification for export context.
+
+    Wraps backend.eligibility.classify_decision_usability with
+    graceful error handling.
+    """
+    try:
+        return classify_decision_usability(
+            country=country,
+            governance_result=governance,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "decision_usability_class": "NOT_ASSESSED",
+            "error": "Decision usability classification failed during export",
+        }
 
 
 def build_axis_json(
