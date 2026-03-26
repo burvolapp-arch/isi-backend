@@ -73,6 +73,9 @@ INFRASTRUCTURE_MODULES = frozenset({
     "epistemic_invariants",         # Monotonicity invariants (enforcement tool)
     "authority_precedence",         # Precedence resolution (used by arbiter)
     "epistemic_arbiter",            # Final epistemic authority (used by export pipeline)
+    # ── True Final Pass v3: fault isolation infrastructure ──
+    "epistemic_dependencies",       # Dependency graph (used by fault isolation)
+    "epistemic_fault_isolation",    # Fault isolation engine (used by arbiter)
 })
 
 # Core computation modules that MUST be imported by export_snapshot.py

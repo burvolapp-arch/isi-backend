@@ -34,6 +34,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from backend.epistemic_fault_isolation import ContainmentLevel
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CHANGE CLASSIFICATION
@@ -1036,3 +1038,157 @@ def _isi_country_map(isi_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     result[code] = entry
 
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FAULT SCOPE DIFF
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Containment ordering for scope comparison
+_CONTAINMENT_ORDER: dict[str, int] = {
+    ContainmentLevel.LOCAL: 0,
+    ContainmentLevel.REGIONAL: 1,
+    ContainmentLevel.GLOBAL: 2,
+}
+
+
+def diff_fault_scope(
+    country: str,
+    fault_scope_a: dict[str, Any] | None,
+    fault_scope_b: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Compare fault scope between two versions for a single country.
+
+    Tracks fault scope expansion, contraction, and containment level
+    changes. Rule: "Any scope expansion = MATERIAL CHANGE."
+
+    Args:
+        country: ISO-2 country code.
+        fault_scope_a: Fault scope dict from version A (or None).
+        fault_scope_b: Fault scope dict from version B (or None).
+
+    Returns:
+        Fault scope diff with expansion/contraction analysis.
+    """
+    if fault_scope_a is None and fault_scope_b is None:
+        return {
+            "country": country,
+            "fault_scope_status": "NO_SCOPE",
+            "has_change": False,
+            "is_material": False,
+            "scope_direction": "NONE",
+            "containment_change": None,
+            "axes_added": [],
+            "axes_removed": [],
+            "outputs_added": [],
+            "outputs_removed": [],
+        }
+
+    if fault_scope_a is None:
+        # New fault scope in version B
+        level_b = fault_scope_b.get("containment_level", ContainmentLevel.LOCAL)
+        axes_b = set(fault_scope_b.get("affected_axes", []))
+        outputs_b = set(fault_scope_b.get("affected_outputs", []))
+        return {
+            "country": country,
+            "fault_scope_status": "INTRODUCED",
+            "has_change": True,
+            "is_material": True,
+            "scope_direction": "EXPANSION",
+            "containment_change": {"from": None, "to": level_b},
+            "axes_added": sorted(axes_b),
+            "axes_removed": [],
+            "outputs_added": sorted(outputs_b),
+            "outputs_removed": [],
+            "n_affected_axes_b": len(axes_b),
+            "n_affected_outputs_b": len(outputs_b),
+        }
+
+    if fault_scope_b is None:
+        # Fault scope removed in version B
+        level_a = fault_scope_a.get("containment_level", ContainmentLevel.LOCAL)
+        axes_a = set(fault_scope_a.get("affected_axes", []))
+        outputs_a = set(fault_scope_a.get("affected_outputs", []))
+        return {
+            "country": country,
+            "fault_scope_status": "RESOLVED",
+            "has_change": True,
+            "is_material": False,
+            "scope_direction": "CONTRACTION",
+            "containment_change": {"from": level_a, "to": None},
+            "axes_added": [],
+            "axes_removed": sorted(axes_a),
+            "outputs_added": [],
+            "outputs_removed": sorted(outputs_a),
+            "n_affected_axes_a": len(axes_a),
+            "n_affected_outputs_a": len(outputs_a),
+        }
+
+    # Both versions have fault scope — compare
+    level_a = fault_scope_a.get("containment_level", ContainmentLevel.LOCAL)
+    level_b = fault_scope_b.get("containment_level", ContainmentLevel.LOCAL)
+
+    axes_a = set(fault_scope_a.get("affected_axes", []))
+    axes_b = set(fault_scope_b.get("affected_axes", []))
+
+    outputs_a = set(fault_scope_a.get("affected_outputs", []))
+    outputs_b = set(fault_scope_b.get("affected_outputs", []))
+
+    axes_added = sorted(axes_b - axes_a)
+    axes_removed = sorted(axes_a - axes_b)
+    outputs_added = sorted(outputs_b - outputs_a)
+    outputs_removed = sorted(outputs_a - outputs_b)
+
+    # Containment level change
+    containment_change = None
+    level_expanded = False
+    if level_a != level_b:
+        containment_change = {"from": level_a, "to": level_b}
+        order_a = _CONTAINMENT_ORDER.get(level_a, 0)
+        order_b = _CONTAINMENT_ORDER.get(level_b, 0)
+        level_expanded = order_b > order_a
+
+    # Determine direction
+    has_expansion = bool(axes_added or outputs_added or level_expanded)
+    has_contraction = bool(axes_removed or outputs_removed) and not has_expansion
+    has_change = bool(
+        axes_added or axes_removed or outputs_added or outputs_removed
+        or containment_change
+    )
+
+    if has_expansion:
+        scope_direction = "EXPANSION"
+    elif has_contraction:
+        scope_direction = "CONTRACTION"
+    elif has_change:
+        scope_direction = "SHIFT"
+    else:
+        scope_direction = "NONE"
+
+    # Rule: "Any scope expansion = MATERIAL CHANGE"
+    is_material = has_expansion
+
+    return {
+        "country": country,
+        "fault_scope_status": "CHANGED" if has_change else "UNCHANGED",
+        "has_change": has_change,
+        "is_material": is_material,
+        "scope_direction": scope_direction,
+        "containment_change": containment_change,
+        "axes_added": axes_added,
+        "axes_removed": axes_removed,
+        "outputs_added": outputs_added,
+        "outputs_removed": outputs_removed,
+        "n_affected_axes_a": len(axes_a),
+        "n_affected_axes_b": len(axes_b),
+        "n_affected_outputs_a": len(outputs_a),
+        "n_affected_outputs_b": len(outputs_b),
+        "honesty_note": (
+            f"Fault scope diff for {country}: {scope_direction}. "
+            f"Axes: {len(axes_a)}→{len(axes_b)} "
+            f"(+{len(axes_added)}, -{len(axes_removed)}). "
+            f"Outputs: {len(outputs_a)}→{len(outputs_b)} "
+            f"(+{len(outputs_added)}, -{len(outputs_removed)}). "
+            f"{'MATERIAL — scope expanded.' if is_material else 'Non-material change.'}"
+        ),
+    }

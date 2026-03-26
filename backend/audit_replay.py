@@ -31,6 +31,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.epistemic_dependencies import (
+    OutputType,
+    VALID_OUTPUT_TYPES,
+    get_output_dependencies,
+    is_output_affected,
+    compute_affected_outputs,
+)
+from backend.epistemic_fault_isolation import (
+    ContainmentLevel,
+    EpistemicFaultScope,
+    fault_scope_to_dict,
+)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # AUDIT STATUS
@@ -452,5 +465,170 @@ def build_counterfactual_replay(
             f"{[c['capability'] for c in binding_constraints] or 'none'}. "
             f"This analysis shows the MINIMUM changes needed to enable "
             f"each blocked capability."
+        ),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COUNTERFACTUAL FAULT RESOLUTION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def counterfactual_fault_resolution(
+    country: str,
+    fault_scope: EpistemicFaultScope | None = None,
+) -> dict[str, Any]:
+    """Compute counterfactual fault resolution for a country.
+
+    This answers: "What is the SMALLEST change to the fault scope
+    that would restore currently-suppressed outputs?"
+
+    For each affected output, identifies:
+    - Which constraint blocks it (remove_constraint)
+    - What condition would restore it (restore_if)
+    - The minimal fix (smallest_fix)
+
+    Args:
+        country: ISO-2 country code.
+        fault_scope: The computed epistemic fault scope.
+
+    Returns:
+        Counterfactual fault resolution with per-output restoration paths.
+    """
+    if fault_scope is None:
+        return {
+            "country": country,
+            "resolution_status": "NO_FAULTS",
+            "resolutions": [],
+            "n_resolutions": 0,
+            "n_restorable": 0,
+            "honesty_note": (
+                f"Counterfactual fault resolution for {country}: "
+                f"No fault scope provided — no outputs suppressed."
+            ),
+        }
+
+    if not fault_scope.affected_outputs:
+        return {
+            "country": country,
+            "resolution_status": "ALL_CLEAR",
+            "fault_scope_level": fault_scope.containment_level,
+            "resolutions": [],
+            "n_resolutions": 0,
+            "n_restorable": 0,
+            "honesty_note": (
+                f"Counterfactual fault resolution for {country}: "
+                f"No affected outputs — all outputs are valid."
+            ),
+        }
+
+    resolutions: list[dict[str, Any]] = []
+    n_restorable = 0
+
+    for output in sorted(fault_scope.affected_outputs):
+        # Determine which axes block this output
+        # Handle per-axis output names like "axis_insight_3" or "axis_score_5"
+        try:
+            if output.startswith("axis_insight_") or output.startswith("axis_score_"):
+                parts = output.rsplit("_", 1)
+                base_type = parts[0].rsplit("_", 1)[0]  # e.g., "axis_insight"
+                ax_id = int(parts[1])
+                dependencies = frozenset({ax_id})
+            else:
+                dependencies = get_output_dependencies(output)
+        except (ValueError, IndexError):
+            dependencies = frozenset()
+
+        blocking_axes = fault_scope.affected_axes & dependencies
+
+        if not blocking_axes:
+            # Output affected but no axis overlap — likely global escalation
+            resolution = {
+                "output": output,
+                "remove_constraint": f"De-escalate from {fault_scope.containment_level} containment.",
+                "restore_if": (
+                    f"Reduce fault scope below GLOBAL. "
+                    f"Currently {len(fault_scope.affected_axes)} axes affected."
+                ),
+                "smallest_fix": (
+                    f"Resolve failures in at least "
+                    f"{max(0, len(fault_scope.affected_axes) - 3)} axes to "
+                    f"prevent GLOBAL escalation."
+                ),
+                "difficulty": "HIGH",
+                "blocking_axes": [],
+            }
+        elif len(blocking_axes) == 1:
+            ax = next(iter(blocking_axes))
+            resolution = {
+                "output": output,
+                "remove_constraint": f"Resolve failure in axis {ax}.",
+                "restore_if": f"Axis {ax} returns to valid state.",
+                "smallest_fix": f"Fix axis {ax} data or authority conflict on axis {ax}.",
+                "difficulty": "LOW",
+                "blocking_axes": sorted(blocking_axes),
+            }
+            n_restorable += 1
+        else:
+            resolution = {
+                "output": output,
+                "remove_constraint": f"Resolve failures in axes {sorted(blocking_axes)}.",
+                "restore_if": (
+                    f"All {len(blocking_axes)} blocking axes return to valid state."
+                ),
+                "smallest_fix": (
+                    f"Fix {len(blocking_axes)} axes: {sorted(blocking_axes)}. "
+                    f"Each axis must be independently resolved."
+                ),
+                "difficulty": "MODERATE" if len(blocking_axes) <= 2 else "HIGH",
+                "blocking_axes": sorted(blocking_axes),
+            }
+            n_restorable += 1
+
+        resolutions.append(resolution)
+
+    # Special handling for composite
+    if fault_scope.composite_action == "SUPPRESS":
+        composite_resolution = {
+            "output": OutputType.COMPOSITE,
+            "remove_constraint": (
+                f"Reduce failed axis weight below 50% threshold. "
+                f"Currently {len(fault_scope.affected_axes)} axes failed."
+            ),
+            "restore_if": (
+                f"Failed axes represent ≤50% of composite weight."
+            ),
+            "smallest_fix": (
+                f"Resolve failures in enough axes to bring failed weight "
+                f"below 50%. Currently {len(fault_scope.affected_axes)} of 6 axes failed."
+            ),
+            "difficulty": "HIGH",
+            "blocking_axes": sorted(fault_scope.affected_axes),
+            "note": "COMPOSITE requires special threshold — not just axis validity.",
+        }
+        # Replace existing composite resolution if present
+        resolutions = [
+            r for r in resolutions
+            if r["output"] != OutputType.COMPOSITE
+        ]
+        resolutions.append(composite_resolution)
+
+    return {
+        "country": country,
+        "resolution_status": "ANALYZED",
+        "fault_scope_level": fault_scope.containment_level,
+        "n_affected_outputs": len(fault_scope.affected_outputs),
+        "n_unaffected_outputs": len(fault_scope.unaffected_outputs),
+        "n_resolutions": len(resolutions),
+        "n_restorable": n_restorable,
+        "resolutions": resolutions,
+        "affected_axes": sorted(fault_scope.affected_axes),
+        "honesty_note": (
+            f"Counterfactual fault resolution for {country}: "
+            f"{len(resolutions)} resolution(s) identified, "
+            f"{n_restorable} output(s) restorable with targeted fixes. "
+            f"Fault scope: {fault_scope.containment_level}, "
+            f"{len(fault_scope.affected_axes)} axes affected. "
+            f"This analysis shows the SMALLEST changes needed to restore "
+            f"each suppressed output."
         ),
     }

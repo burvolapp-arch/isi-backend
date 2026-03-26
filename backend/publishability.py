@@ -35,6 +35,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.epistemic_fault_isolation import (
+    EpistemicFaultScope,
+    compute_scoped_publishability,
+)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PUBLISHABILITY STATUS
@@ -279,5 +284,130 @@ def assess_publishability(
             f"{'Output is fit for publication.' if status == PublishabilityStatus.PUBLISHABLE else ''}"
             f"{'Output requires mandatory caveats.' if status == PublishabilityStatus.PUBLISHABLE_WITH_CAVEATS else ''}"
             f"{'Output is NOT fit for publication.' if status == PublishabilityStatus.NOT_PUBLISHABLE else ''}"
+        ),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SCOPED PUBLISHABILITY ASSESSMENT
+# ═══════════════════════════════════════════════════════════════════════════
+
+def assess_scoped_publishability(
+    country: str,
+    fault_scope: EpistemicFaultScope | None = None,
+    truth_result: dict[str, Any] | None = None,
+    scope_result: dict[str, Any] | None = None,
+    override_summary: dict[str, Any] | None = None,
+    authority_conflicts: dict[str, Any] | None = None,
+    data_completeness: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assess publishability with fault-scope awareness.
+
+    This is the fault-isolation-aware wrapper around assess_publishability.
+    Instead of a single global publishability status, it produces:
+    - A global baseline (from assess_publishability)
+    - Per-output publishability (from fault scope)
+    - Independent axis publishability (axis failure does NOT suppress unrelated outputs)
+
+    Rule: "Axis failure must not suppress unrelated outputs."
+
+    Args:
+        country: ISO-2 country code.
+        fault_scope: Computed epistemic fault scope (or None for legacy mode).
+        truth_result: Output of resolve_truth().
+        scope_result: Output of determine_permitted_scope().
+        override_summary: Output of compute_override_summary().
+        authority_conflicts: Output of detect_authority_conflicts().
+        data_completeness: {axes_available, axes_required, ...}
+
+    Returns:
+        Scoped publishability assessment with per-output status.
+    """
+    # ── Step 1: Compute baseline publishability ──
+    baseline = assess_publishability(
+        country=country,
+        truth_result=truth_result,
+        scope_result=scope_result,
+        override_summary=override_summary,
+        authority_conflicts=authority_conflicts,
+        data_completeness=data_completeness,
+    )
+
+    # ── Step 2: If no fault scope, return baseline (legacy mode) ──
+    if fault_scope is None:
+        baseline["scoped"] = False
+        baseline["per_output_publishability"] = {}
+        return baseline
+
+    # ── Step 3: Compute per-output publishability ──
+    base_status = baseline["publishability_status"]
+    per_output = compute_scoped_publishability(
+        fault_scope=fault_scope,
+        base_publishability=base_status,
+    )
+
+    # ── Step 4: Determine effective status ──
+    # The scoped status is the MOST RESTRICTIVE per-output status
+    # that applies to global outputs (ranking, composite, policy).
+    # But per-axis outputs get INDEPENDENT assessment.
+    global_output_statuses = []
+    for key, val in per_output.items():
+        if key.startswith("publishability_") and not key.startswith("publishability_axis_"):
+            if key not in ("publishability_fault_scope_level",):
+                global_output_statuses.append(val)
+
+    # Effective global: most restrictive among global outputs
+    status_order = {
+        PublishabilityStatus.NOT_PUBLISHABLE: 0,
+        PublishabilityStatus.RESTRICTED: 1,
+        PublishabilityStatus.PUBLISHABLE_WITH_CAVEATS: 2,
+        PublishabilityStatus.PUBLISHABLE: 3,
+    }
+
+    effective_status = base_status
+    for s in global_output_statuses:
+        if status_order.get(s, 3) < status_order.get(effective_status, 3):
+            effective_status = s
+
+    # ── Step 5: Count independently publishable outputs ──
+    n_publishable = sum(
+        1 for key, val in per_output.items()
+        if key.startswith("publishability_") and val == PublishabilityStatus.PUBLISHABLE
+    )
+    n_caveats = sum(
+        1 for key, val in per_output.items()
+        if key.startswith("publishability_") and val == PublishabilityStatus.PUBLISHABLE_WITH_CAVEATS
+    )
+    n_blocked = sum(
+        1 for key, val in per_output.items()
+        if key.startswith("publishability_") and val == PublishabilityStatus.NOT_PUBLISHABLE
+    )
+
+    return {
+        "country": country,
+        "scoped": True,
+        "publishability_status": effective_status,
+        "is_publishable": effective_status != PublishabilityStatus.NOT_PUBLISHABLE,
+        "requires_caveats": effective_status == PublishabilityStatus.PUBLISHABLE_WITH_CAVEATS,
+        "baseline_status": base_status,
+        "per_output_publishability": per_output,
+        "n_outputs_publishable": n_publishable,
+        "n_outputs_caveats": n_caveats,
+        "n_outputs_blocked": n_blocked,
+        "fault_scope_level": fault_scope.containment_level,
+        "n_affected_axes": len(fault_scope.affected_axes),
+        "affected_axes": sorted(fault_scope.affected_axes),
+        "reasons": baseline["reasons"],
+        "caveats": baseline["caveats"],
+        "blockers": baseline["blockers"],
+        "honesty_note": (
+            f"Scoped publishability for {country}: baseline={base_status}, "
+            f"effective={effective_status}. "
+            f"Fault scope: {fault_scope.containment_level}, "
+            f"{len(fault_scope.affected_axes)} axes affected. "
+            f"Per-output: {n_publishable} publishable, "
+            f"{n_caveats} with caveats, {n_blocked} blocked. "
+            f"Unaffected outputs retain baseline publishability — "
+            f"axis failures do NOT suppress unrelated outputs."
         ),
     }

@@ -43,6 +43,13 @@ from backend.epistemic_bounds import (
     merge_bounds,
     tighten_bounds,
 )
+from backend.epistemic_fault_isolation import (
+    ContainmentLevel,
+    EpistemicFaultScope,
+    compute_fault_isolation,
+    compute_scoped_publishability,
+    fault_scope_to_dict,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -110,6 +117,10 @@ def adjudicate(
     reality_conflicts: dict[str, Any] | None = None,
     scope_result: dict[str, Any] | None = None,
     publishability_result: dict[str, Any] | None = None,
+    axis_failures: set[int] | None = None,
+    invariant_violations: list[dict[str, Any]] | None = None,
+    authority_conflicts: dict[str, Any] | None = None,
+    axis_weights: dict[int, float] | None = None,
 ) -> dict[str, Any]:
     """Produce the final epistemic verdict for a country.
 
@@ -475,6 +486,24 @@ def adjudicate(
     }
     final_publishability = publishability_map.get(status, "NOT_PUBLISHABLE")
 
+    # ── Fault Isolation (v3) — compute scoped degradation ──
+    fault_scope = compute_fault_isolation(
+        country=country,
+        invariant_violations=invariant_violations,
+        authority_conflicts=authority_conflicts,
+        runtime_failures=runtime_status,
+        epistemic_bounds=epistemic_bounds,
+        governance=governance,
+        axis_failures=axis_failures,
+        axis_weights=axis_weights,
+    )
+
+    # ── Apply fault-scope-aware rules ──
+    # Only suppress globally if containment is GLOBAL
+    scoped_pub = compute_scoped_publishability(
+        fault_scope, base_publishability=final_publishability,
+    )
+
     return {
         "country": country,
         "final_epistemic_status": status,
@@ -486,6 +515,8 @@ def adjudicate(
         "final_bounds": bounds_to_dict(bounds),
         "binding_constraints": binding_constraints,
         "arbiter_reasoning": reasons,
+        "fault_scope": fault_scope_to_dict(fault_scope),
+        "scoped_publishability": scoped_pub,
         "n_inputs_evaluated": sum(
             1 for x in [
                 runtime_status, truth_resolution, override_pressure,
