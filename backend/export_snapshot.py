@@ -73,12 +73,39 @@ from backend.severity import (
     assign_comparability_tier,
 )
 from backend.falsification import assess_country_falsification
-from backend.eligibility import classify_decision_usability
+from backend.eligibility import (
+    build_axis_readiness_matrix,
+    classify_decision_usability,
+    classify_empirical_alignment,
+)
+from backend.external_validation import build_external_validation_block
+from backend.failure_visibility import build_visibility_block
+from backend.reality_conflicts import detect_reality_conflicts
+from backend.construct_enforcement import enforce_all_axes
+from backend.benchmark_mapping_audit import (
+    get_mapping_audit_registry,
+    should_downgrade_alignment,
+)
+from backend.alignment_sensitivity import (
+    run_alignment_sensitivity,
+    should_downgrade_for_instability,
+)
+from backend.invariants import assess_country_invariants
+from backend.enforcement_matrix import apply_enforcement
+from backend.truth_resolver import resolve_truth
 from backend.signing import (
     SIGNATURE_FILENAME,
     load_private_key,
     sign_snapshot_hash,
 )
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VERSION LOCKING — embedded in every export for reproducibility
+# ═══════════════════════════════════════════════════════════════════════════
+
+PIPELINE_VERSION = "2.0.0"
+TRUTH_LOGIC_VERSION = "1.0.0"
+ENFORCEMENT_VERSION = "1.0.0"
 
 # ---------------------------------------------------------------------------
 # Project paths
@@ -326,8 +353,12 @@ def build_isi_json(
                 country=country, governance_result=gov,
             )
             row["decision_usability_class"] = usability["decision_usability_class"]
+            row["policy_usability_class"] = usability.get(
+                "policy_usability_class", "NOT_ASSESSED"
+            )
         except Exception:
             row["decision_usability_class"] = "NOT_ASSESSED"
+            row["policy_usability_class"] = "NOT_ASSESSED"
         rows.append(row)
 
     # Sort: descending by composite, tie-break alphabetical by country (D-2 fix)
@@ -349,16 +380,33 @@ def build_isi_json(
         },
         "_truthfulness_caveat": (
             "Each country row now includes governance_tier, ranking_eligible, "
-            "and cross_country_comparable fields. Countries at different "
-            "governance tiers should NOT be directly compared. "
-            "Use /country/{code} for full governance context including "
-            "per-axis confidence, structural limitations, and comparability "
-            "analysis. 'Ranking-eligible' is a THEORETICAL classification "
-            "based on internal governance rules, not an empirical quality "
-            "guarantee."
+            "cross_country_comparable, and policy_usability_class fields. "
+            "Countries at different governance tiers should NOT be directly "
+            "compared. Use /country/{code} for full governance context "
+            "including per-axis confidence, structural limitations, "
+            "comparability analysis, and external validation. "
+            "'Ranking-eligible' is a THEORETICAL classification based on "
+            "internal governance rules, not an empirical quality guarantee."
         ),
+        "external_validation_status": _get_external_validation_status(),
         "countries": rows,
     }
+
+
+def _get_external_validation_status() -> dict[str, Any]:
+    """Return summary of external validation framework status for ISI JSON.
+
+    Wraps external_validation.get_external_validation_status() with
+    graceful error handling.
+    """
+    try:
+        from backend.external_validation import get_external_validation_status
+        return get_external_validation_status()
+    except Exception:
+        return {
+            "status": "NOT_AVAILABLE",
+            "error": "External validation status unavailable",
+        }
 
 
 def build_country_json(
@@ -455,23 +503,169 @@ def build_country_json(
         strict_comparability_tier=strict_tier,
     )
 
+    # ── Compute layers in dependency order ──
+    # Layer 2+3: falsification and decision usability
+    falsification = _compute_country_falsification(country, governance)
+    decision_usability = _compute_decision_usability(country, governance)
+
+    # Layer 4: external validation — empirical grounding
+    external_validation = _compute_external_validation(country, all_scores)
+
+    # Layer 4a: construct enforcement — requires readiness matrix + alignment
+    construct_enforcement_result = _compute_construct_enforcement(
+        country, external_validation,
+    )
+
+    # Layer 4b: benchmark mapping audit — per-benchmark mapping validity
+    mapping_audit_results = _compute_mapping_audit()
+
+    # Layer 4c: alignment sensitivity — robustness of alignment
+    sensitivity_result = _compute_alignment_sensitivity(
+        country, all_scores, external_validation,
+    )
+
+    # Layer 4d: empirical alignment classification
+    empirical_alignment = _compute_empirical_alignment(external_validation)
+
+    # Layer 5: invariant assessment — structural integrity
+    invariant_result = _compute_invariants(
+        country, all_scores, governance, external_validation,
+        decision_usability, construct_enforcement_result,
+        mapping_audit_results, sensitivity_result,
+    )
+
+    # Layer 6: failure visibility — anti-bullshit layer (needs ALL upstream data)
+    failure_visibility = _compute_failure_visibility(
+        country, governance, decision_usability,
+        construct_enforcement_result, external_validation,
+        sensitivity_result, mapping_audit_results,
+        invariant_result,
+    )
+
+    # Layer 7: reality conflicts — structural contradiction layer
+    reality_conflicts = _compute_reality_conflicts(
+        country, governance,
+        alignment=external_validation,
+        decision_usability=decision_usability,
+        empirical_alignment=empirical_alignment,
+    )
+
+    # ── Enforcement Matrix — flags must have consequences ──
+    enforcement_state = {
+        "governance": governance,
+        "decision_usability": decision_usability,
+        "construct_enforcement": construct_enforcement_result,
+        "external_validation": external_validation,
+        "failure_visibility": failure_visibility,
+        "reality_conflicts": reality_conflicts,
+        "invariant_assessment": invariant_result,
+        "alignment_sensitivity": sensitivity_result,
+    }
+    enforcement_result = apply_enforcement(enforcement_state)
+
+    # ── Truth Resolver — single authoritative source ──
+    truth_result = resolve_truth(enforcement_state, enforcement_result)
+
+    # Apply truth-resolved values to output
+    enforced_composite = composite
+    if truth_result["final_composite_suppressed"]:
+        enforced_composite = None
+
+    # ── Runtime Status (Section 4) ──
+    # Detect degraded layers (layers that caught their own errors)
+    degraded_layers: list[str] = []
+    for layer_key in [
+        "falsification", "decision_usability", "external_validation",
+        "construct_enforcement", "alignment_sensitivity",
+        "failure_visibility", "reality_conflicts", "invariant_assessment",
+    ]:
+        block = locals().get(layer_key) or {}
+        if isinstance(block, dict):
+            # Check renamed local vars
+            if layer_key == "construct_enforcement":
+                block = construct_enforcement_result
+            elif layer_key == "alignment_sensitivity":
+                block = sensitivity_result
+            elif layer_key == "invariant_assessment":
+                block = invariant_result
+            if isinstance(block, dict) and block.get("error"):
+                degraded_layers.append(layer_key)
+
+    runtime_status: dict[str, Any] = {
+        "pipeline_status": "DEGRADED" if degraded_layers else "HEALTHY",
+        "degraded_layers": degraded_layers,
+        "failed_layers": [],
+        "export_blocked": truth_result.get("export_blocked", False),
+        "export_blocked_reason": (
+            truth_result.get("block_reasons", []) if truth_result.get("export_blocked") else []
+        ),
+    }
+
+    # ── Version Locking (Section 5) ──
+    version_info: dict[str, str] = {
+        "methodology_version": methodology_version,
+        "pipeline_version": PIPELINE_VERSION,
+        "truth_logic_version": TRUTH_LOGIC_VERSION,
+        "enforcement_version": ENFORCEMENT_VERSION,
+    }
+
+    # ── Safe Mode Export (Section 7) ──
+    final_tier = truth_result.get("final_governance_tier", "NON_COMPARABLE")
+    safe_mode_warnings: list[str] = []
+    safe_mode_ranking_hidden = False
+
+    if final_tier in ("LOW_CONFIDENCE", "NON_COMPARABLE"):
+        safe_mode_ranking_hidden = True
+        safe_mode_warnings.append(
+            f"Rankings hidden: governance tier is {final_tier}. "
+            f"This country's data quality does not support ranking comparisons."
+        )
+
+    if not truth_result.get("final_ranking_eligible", False):
+        safe_mode_ranking_hidden = True
+        safe_mode_warnings.append(
+            "Rankings hidden: country is not ranking-eligible."
+        )
+
+    if truth_result.get("export_blocked", False):
+        safe_mode_warnings.append(
+            "EXPORT BLOCKED: Structural issues prevent reliable export. "
+            "Data in this snapshot should not be used for decision-making."
+        )
+
+    safe_mode: dict[str, Any] = {
+        "ranking_hidden": safe_mode_ranking_hidden,
+        "warnings": safe_mode_warnings,
+        "n_warnings": len(safe_mode_warnings),
+    }
+
     return {
         "country": country,
         "country_name": name,
         "version": methodology_version,
         "year": year,
         "window": data_window,
-        "isi_composite": composite,
-        "isi_classification": classify(composite, methodology_version) if composite is not None else None,
+        "isi_composite": enforced_composite,
+        "isi_classification": classify(enforced_composite, methodology_version) if enforced_composite is not None else None,
         "axes_available": axes_with_data,
         "axes_required": NUM_AXES,
         "severity_analysis": country_sev,
         "strict_comparability_tier": strict_tier,
         "governance": governance,
         "axes": axes_detail,
-        # ── LAYER 2 + 3 integration: falsification and decision usability ──
-        "falsification": _compute_country_falsification(country, governance),
-        "decision_usability": _compute_decision_usability(country, governance),
+        "falsification": falsification,
+        "decision_usability": decision_usability,
+        "external_validation": external_validation,
+        "construct_enforcement": construct_enforcement_result,
+        "alignment_sensitivity": sensitivity_result,
+        "failure_visibility": failure_visibility,
+        "reality_conflicts": reality_conflicts,
+        "invariant_assessment": invariant_result,
+        "enforcement_actions": enforcement_result,
+        "truth_resolution": truth_result,
+        "runtime_status": runtime_status,
+        "version_info": version_info,
+        "safe_mode": safe_mode,
     }
 
 
@@ -513,6 +707,305 @@ def _compute_decision_usability(
             "country": country,
             "decision_usability_class": "NOT_ASSESSED",
             "error": "Decision usability classification failed during export",
+        }
+
+
+def _compute_external_validation(
+    country: str,
+    all_scores: dict[int, dict[str, float]],
+    external_data: dict[str, dict[str, float]] | None = None,
+) -> dict[str, Any]:
+    """Compute external validation block for a country's export JSON.
+
+    Wraps backend.external_validation.build_external_validation_block with
+    graceful error handling.
+
+    Args:
+        country: ISO-2 code.
+        all_scores: {axis_id: {country: score}} for all axes.
+        external_data: {benchmark_id: {country: value}} if available.
+    """
+    try:
+        axis_scores: dict[int, float | None] = {}
+        for axis_id in range(1, NUM_AXES + 1):
+            scores = all_scores.get(axis_id, {})
+            axis_scores[axis_id] = scores.get(country)
+
+        return build_external_validation_block(
+            country=country,
+            axis_scores=axis_scores,
+            external_data=external_data,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "overall_alignment": "NOT_ASSESSED",
+            "error": "External validation failed during export",
+            "empirical_grounding_answer": (
+                "CANNOT ANSWER — external validation failed during export."
+            ),
+        }
+
+
+def _compute_failure_visibility(
+    country: str,
+    governance: dict[str, Any],
+    decision_usability: dict[str, Any] | None = None,
+    construct_enforcement: dict[str, Any] | None = None,
+    external_validation: dict[str, Any] | None = None,
+    sensitivity_result: dict[str, Any] | None = None,
+    mapping_audit_results: dict[str, dict[str, Any]] | None = None,
+    invariant_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute failure visibility block for a country's export JSON.
+
+    Wraps backend.failure_visibility.build_visibility_block with
+    graceful error handling.
+
+    This is the anti-bullshit layer — every exported country JSON
+    MUST include embedded limitation data. ALL upstream layer results
+    are passed through so the visibility block can surface every
+    known limitation.
+    """
+    try:
+        return build_visibility_block(
+            country=country,
+            governance_result=governance,
+            decision_usability=decision_usability,
+            construct_enforcement=construct_enforcement,
+            external_validation=external_validation,
+            sensitivity_result=sensitivity_result,
+            mapping_audit_results=mapping_audit_results,
+            invariant_result=invariant_result,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "trust_level": "UNKNOWN",
+            "trust_explanation": (
+                "Failure visibility computation failed during export. "
+                "Treat output as UNVALIDATED."
+            ),
+            "severity_summary": {
+                "n_critical": 0,
+                "n_error": 0,
+                "n_warning": 0,
+                "n_info": 0,
+                "total_flags": 0,
+            },
+            "error": "Failure visibility failed during export",
+        }
+
+
+def _compute_reality_conflicts(
+    country: str,
+    governance: dict[str, Any],
+    alignment: dict[str, Any] | None = None,
+    decision_usability: dict[str, Any] | None = None,
+    empirical_alignment: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute reality conflicts block for a country's export JSON.
+
+    Wraps backend.reality_conflicts.detect_reality_conflicts with
+    graceful error handling.
+
+    Reality conflicts are STRUCTURAL entries — not flags, not logs.
+    They surface when ISI's internal classification contradicts
+    external evidence.
+    """
+    try:
+        return detect_reality_conflicts(
+            country=country,
+            governance_result=governance,
+            alignment_result=alignment,
+            decision_usability=decision_usability,
+            empirical_alignment=empirical_alignment,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "n_conflicts": 0,
+            "n_warnings": 0,
+            "n_errors": 0,
+            "n_critical": 0,
+            "has_critical": False,
+            "conflicts": [],
+            "interpretation": (
+                f"Reality conflict detection failed for {country}. "
+                f"Treat as UNVERIFIED."
+            ),
+            "error": "Reality conflict detection failed during export",
+        }
+
+
+def _compute_construct_enforcement(
+    country: str,
+    external_validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute construct enforcement for a country's export JSON.
+
+    Wraps backend.construct_enforcement.enforce_all_axes with
+    graceful error handling. Requires readiness matrix and optional
+    alignment data from external_validation.
+
+    Args:
+        country: ISO-2 code.
+        external_validation: External validation block (for per-axis alignment).
+    """
+    try:
+        readiness_matrix = build_axis_readiness_matrix(country)
+
+        # Extract per-axis alignment classes from external_validation
+        axis_alignment_map: dict[int, str] | None = None
+        if external_validation and "per_axis_summary" in external_validation:
+            axis_alignment_map = {}
+            for ax_summary in external_validation["per_axis_summary"]:
+                axis_id = ax_summary.get("axis_id")
+                alignment_status = ax_summary.get("alignment_status", "UNKNOWN")
+                if axis_id is not None:
+                    axis_alignment_map[axis_id] = alignment_status
+
+        return enforce_all_axes(
+            readiness_matrix=readiness_matrix,
+            axis_alignment_map=axis_alignment_map,
+        )
+    except Exception:
+        return {
+            "per_axis": [],
+            "n_valid": 0,
+            "n_degraded": 0,
+            "n_invalid": 0,
+            "composite_producible": False,
+            "error": f"Construct enforcement failed for {country}",
+        }
+
+
+def _compute_mapping_audit() -> dict[str, dict[str, Any]]:
+    """Compute benchmark mapping audit results for export.
+
+    Returns the full mapping audit registry so downstream layers
+    (failure_visibility, invariants) can check mapping validity.
+    """
+    try:
+        return get_mapping_audit_registry()
+    except Exception:
+        return {}
+
+
+def _compute_alignment_sensitivity(
+    country: str,
+    all_scores: dict[int, dict[str, float]],
+    external_validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute alignment sensitivity for a country's export JSON.
+
+    Wraps backend.alignment_sensitivity.run_alignment_sensitivity with
+    graceful error handling.
+
+    Args:
+        country: ISO-2 code.
+        all_scores: {axis_id: {country: score}} for all axes.
+        external_validation: External validation block (for original class).
+    """
+    try:
+        axis_scores: dict[int, float | None] = {}
+        for axis_id in range(1, NUM_AXES + 1):
+            scores = all_scores.get(axis_id, {})
+            axis_scores[axis_id] = scores.get(country)
+
+        original_class = None
+        if external_validation:
+            original_class = external_validation.get("overall_alignment")
+
+        return run_alignment_sensitivity(
+            country=country,
+            axis_scores=axis_scores,
+            original_alignment_class=original_class,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "stability_class": "NOT_ASSESSED",
+            "original_alignment_class": None,
+            "n_perturbations_run": 0,
+            "n_perturbations_changed": 0,
+            "error": f"Alignment sensitivity failed for {country}",
+        }
+
+
+def _compute_empirical_alignment(
+    external_validation: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Compute empirical alignment classification for export.
+
+    Wraps backend.eligibility.classify_empirical_alignment with
+    graceful error handling.
+
+    Args:
+        external_validation: External validation block.
+    """
+    try:
+        return classify_empirical_alignment(external_validation)
+    except Exception:
+        return None
+
+
+def _compute_invariants(
+    country: str,
+    all_scores: dict[int, dict[str, float]],
+    governance: dict[str, Any],
+    external_validation: dict[str, Any] | None = None,
+    decision_usability: dict[str, Any] | None = None,
+    construct_enforcement: dict[str, Any] | None = None,
+    mapping_audit_results: dict[str, dict[str, Any]] | None = None,
+    sensitivity_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute invariant assessment for a country's export JSON.
+
+    Wraps backend.invariants.assess_country_invariants with
+    graceful error handling. Passes ALL available upstream data
+    so invariant checks are comprehensive.
+
+    Args:
+        country: ISO-2 code.
+        all_scores: {axis_id: {country: score}} for all axes.
+        governance: Governance result.
+        external_validation: External validation block.
+        decision_usability: Decision usability result.
+        construct_enforcement: Construct enforcement result.
+        mapping_audit_results: Benchmark mapping audit results.
+        sensitivity_result: Alignment sensitivity result.
+    """
+    try:
+        axis_scores: dict[int, float | None] = {}
+        for axis_id in range(1, NUM_AXES + 1):
+            scores = all_scores.get(axis_id, {})
+            axis_scores[axis_id] = scores.get(country)
+
+        du_class = None
+        if decision_usability:
+            du_class = decision_usability.get("decision_usability_class")
+
+        return assess_country_invariants(
+            country=country,
+            axis_scores=axis_scores,
+            governance_result=governance,
+            alignment_result=external_validation,
+            decision_usability_class=du_class,
+            construct_enforcement=construct_enforcement,
+            mapping_audit_results=mapping_audit_results,
+            sensitivity_result=sensitivity_result,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "n_violations": 0,
+            "n_warnings": 0,
+            "n_errors": 0,
+            "n_critical": 0,
+            "has_critical": False,
+            "violations": [],
+            "error": f"Invariant assessment failed for {country}",
         }
 
 

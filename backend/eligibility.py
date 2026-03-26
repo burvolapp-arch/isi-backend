@@ -158,10 +158,353 @@ _USABILITY_RANK = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EMPIRICAL ALIGNMENT DIMENSION
+# ═══════════════════════════════════════════════════════════════════════════
+# This extends the STRUCTURAL usability classification (DecisionUsabilityClass)
+# with an EMPIRICAL dimension: does the ISI output align with external
+# benchmarks?
+#
+# The structural class answers: "Is this output defensible given the system's
+#   internal rules?"
+# The empirical class answers: "Does this output agree with external reality?"
+#
+# These are ORTHOGONAL dimensions. A country can be:
+#   TRUSTED_COMPARABLE + EMPIRICALLY_ALIGNED  → Best case
+#   TRUSTED_COMPARABLE + EMPIRICALLY_WEAK     → Structurally sound but
+#                                                external data disagrees
+#   STRUCTURALLY_LIMITED + EMPIRICALLY_ALIGNED → Data agrees but internal
+#                                                 structural issues exist
+#
+# The combined class (PolicyUsabilityClass) integrates both dimensions
+# into a single policy-relevant classification.
+
+class EmpiricalAlignmentClass:
+    """Empirical alignment dimension for decision usability.
+
+    EMPIRICALLY_GROUNDED:      ISI output aligns with available external
+                               benchmarks. Correlation is STRONGLY_ALIGNED
+                               on a majority of compared axes.
+
+    EMPIRICALLY_MIXED:         Some axes align, some diverge. External
+                               grounding is partial — useful with caveats.
+
+    EMPIRICALLY_WEAK:          Alignment data exists but correlation is
+                               low across most compared axes. ISI output
+                               may not reflect external reality.
+
+    EMPIRICALLY_CONTRADICTED:  ISI output actively contradicts external
+                               benchmarks on a majority of compared axes.
+                               Policy use requires extreme caution.
+
+    NOT_EMPIRICALLY_ASSESSED:  No external benchmark data available for
+                               comparison. Empirical alignment is unknown.
+    """
+    EMPIRICALLY_GROUNDED = "EMPIRICALLY_GROUNDED"
+    EMPIRICALLY_MIXED = "EMPIRICALLY_MIXED"
+    EMPIRICALLY_WEAK = "EMPIRICALLY_WEAK"
+    EMPIRICALLY_CONTRADICTED = "EMPIRICALLY_CONTRADICTED"
+    NOT_EMPIRICALLY_ASSESSED = "NOT_EMPIRICALLY_ASSESSED"
+
+
+VALID_EMPIRICAL_CLASSES = frozenset({
+    EmpiricalAlignmentClass.EMPIRICALLY_GROUNDED,
+    EmpiricalAlignmentClass.EMPIRICALLY_MIXED,
+    EmpiricalAlignmentClass.EMPIRICALLY_WEAK,
+    EmpiricalAlignmentClass.EMPIRICALLY_CONTRADICTED,
+    EmpiricalAlignmentClass.NOT_EMPIRICALLY_ASSESSED,
+})
+
+_EMPIRICAL_RANK = {
+    EmpiricalAlignmentClass.EMPIRICALLY_CONTRADICTED: 0,
+    EmpiricalAlignmentClass.EMPIRICALLY_WEAK: 1,
+    EmpiricalAlignmentClass.EMPIRICALLY_MIXED: 2,
+    EmpiricalAlignmentClass.EMPIRICALLY_GROUNDED: 3,
+    EmpiricalAlignmentClass.NOT_EMPIRICALLY_ASSESSED: -1,  # Special: unknown
+}
+
+
+class PolicyUsabilityClass:
+    """Combined structural + empirical usability for policy decisions.
+
+    STRUCTURALLY_SOUND_EMPIRICALLY_ALIGNED:
+        Best case. Internal structure is defensible AND external
+        benchmarks confirm alignment. Suitable for policy use.
+
+    STRUCTURALLY_SOUND_EMPIRICALLY_WEAK:
+        Internal structure is defensible but external benchmarks
+        show weak or no alignment. Use with documented caveats
+        about empirical grounding.
+
+    EMPIRICALLY_CONTRADICTED:
+        External benchmarks actively contradict ISI output.
+        Regardless of structural soundness, policy use requires
+        extreme caution and investigation into WHY disagreement exists.
+
+    STRUCTURALLY_LIMITED:
+        Structural issues dominate. Empirical alignment does not
+        override structural disqualification. Directional use only.
+
+    INVALID_FOR_POLICY_USE:
+        Either structurally invalid (sanctions, data absence) OR
+        both structurally limited AND empirically contradicted.
+        Do NOT use for any policy decision.
+
+    NOT_ASSESSED:
+        Insufficient information to classify.
+    """
+    SOUND_AND_ALIGNED = "STRUCTURALLY_SOUND_EMPIRICALLY_ALIGNED"
+    SOUND_BUT_WEAK = "STRUCTURALLY_SOUND_EMPIRICALLY_WEAK"
+    EMPIRICALLY_CONTRADICTED = "EMPIRICALLY_CONTRADICTED"
+    STRUCTURALLY_LIMITED = "STRUCTURALLY_LIMITED"
+    INVALID_FOR_POLICY_USE = "INVALID_FOR_POLICY_USE"
+    NOT_ASSESSED = "NOT_ASSESSED"
+
+
+VALID_POLICY_CLASSES = frozenset({
+    PolicyUsabilityClass.SOUND_AND_ALIGNED,
+    PolicyUsabilityClass.SOUND_BUT_WEAK,
+    PolicyUsabilityClass.EMPIRICALLY_CONTRADICTED,
+    PolicyUsabilityClass.STRUCTURALLY_LIMITED,
+    PolicyUsabilityClass.INVALID_FOR_POLICY_USE,
+    PolicyUsabilityClass.NOT_ASSESSED,
+})
+
+
+def classify_empirical_alignment(
+    external_validation_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Classify the empirical alignment dimension from external validation.
+
+    Args:
+        external_validation_result: Output of
+            external_validation.build_external_validation_block() or
+            external_validation.assess_country_alignment().
+            None if external validation has not been performed.
+
+    Returns:
+        Dict with empirical_class, evidence, and interpretation.
+    """
+    if external_validation_result is None:
+        return {
+            "empirical_class": EmpiricalAlignmentClass.NOT_EMPIRICALLY_ASSESSED,
+            "n_axes_compared": 0,
+            "n_axes_aligned": 0,
+            "n_axes_divergent": 0,
+            "interpretation": (
+                "No external validation data available. Empirical "
+                "alignment cannot be assessed."
+            ),
+        }
+
+    # Extract alignment statistics — handle both block and raw formats
+    n_compared = external_validation_result.get("n_axes_compared", 0)
+    n_aligned = external_validation_result.get("n_axes_aligned", 0)
+    n_divergent = external_validation_result.get("n_axes_divergent", 0)
+    overall = external_validation_result.get("overall_alignment", "NO_DATA")
+
+    if n_compared == 0 or overall == "NO_DATA":
+        return {
+            "empirical_class": EmpiricalAlignmentClass.NOT_EMPIRICALLY_ASSESSED,
+            "n_axes_compared": n_compared,
+            "n_axes_aligned": n_aligned,
+            "n_axes_divergent": n_divergent,
+            "interpretation": (
+                "No axes had sufficient external data for comparison."
+            ),
+        }
+
+    # Classification logic:
+    # EMPIRICALLY_GROUNDED: majority aligned, none divergent
+    # EMPIRICALLY_MIXED: some aligned, some divergent
+    # EMPIRICALLY_WEAK: majority not aligned (neither aligned nor divergent — just weak)
+    # EMPIRICALLY_CONTRADICTED: majority divergent
+
+    if n_divergent > n_compared / 2:
+        emp_class = EmpiricalAlignmentClass.EMPIRICALLY_CONTRADICTED
+        interp = (
+            f"External benchmarks contradict ISI output on "
+            f"{n_divergent}/{n_compared} compared axes."
+        )
+    elif n_aligned > n_compared / 2:
+        emp_class = EmpiricalAlignmentClass.EMPIRICALLY_GROUNDED
+        interp = (
+            f"External benchmarks confirm ISI alignment on "
+            f"{n_aligned}/{n_compared} compared axes."
+        )
+    elif n_aligned > 0 and n_divergent > 0:
+        emp_class = EmpiricalAlignmentClass.EMPIRICALLY_MIXED
+        interp = (
+            f"Mixed external alignment: {n_aligned} aligned, "
+            f"{n_divergent} divergent out of {n_compared} compared."
+        )
+    else:
+        emp_class = EmpiricalAlignmentClass.EMPIRICALLY_WEAK
+        interp = (
+            f"External comparisons available ({n_compared} axes) but "
+            f"alignment is weak — neither strongly confirming nor "
+            f"contradicting ISI output."
+        )
+
+    return {
+        "empirical_class": emp_class,
+        "n_axes_compared": n_compared,
+        "n_axes_aligned": n_aligned,
+        "n_axes_divergent": n_divergent,
+        "interpretation": interp,
+    }
+
+
+def classify_policy_usability(
+    structural_class: str,
+    empirical_class: str,
+) -> dict[str, Any]:
+    """Derive combined policy usability from structural + empirical dimensions.
+
+    Args:
+        structural_class: DecisionUsabilityClass value.
+        empirical_class: EmpiricalAlignmentClass value.
+
+    Returns:
+        Dict with policy_usability_class, justification, and guidance.
+    """
+    # RULE 1: Structural invalidity is absolute
+    if structural_class == DecisionUsabilityClass.INVALID_FOR_COMPARISON:
+        if empirical_class == EmpiricalAlignmentClass.EMPIRICALLY_CONTRADICTED:
+            policy_class = PolicyUsabilityClass.INVALID_FOR_POLICY_USE
+            justification = (
+                "Structurally invalid AND empirically contradicted. "
+                "No basis for policy use."
+            )
+        else:
+            policy_class = PolicyUsabilityClass.INVALID_FOR_POLICY_USE
+            justification = (
+                "Structurally invalid — empirical alignment cannot "
+                "override structural disqualification."
+            )
+
+    # RULE 2: Empirical contradiction is a hard warning
+    elif empirical_class == EmpiricalAlignmentClass.EMPIRICALLY_CONTRADICTED:
+        policy_class = PolicyUsabilityClass.EMPIRICALLY_CONTRADICTED
+        justification = (
+            f"Structural class is {structural_class} but external "
+            f"benchmarks actively contradict ISI output. Investigation "
+            f"required before policy use."
+        )
+
+    # RULE 3: Structural limitation dominates over weak empirical
+    elif structural_class == DecisionUsabilityClass.STRUCTURALLY_LIMITED:
+        if empirical_class == EmpiricalAlignmentClass.EMPIRICALLY_WEAK:
+            policy_class = PolicyUsabilityClass.INVALID_FOR_POLICY_USE
+            justification = (
+                "Structurally limited AND empirically weak. "
+                "Insufficient basis for any policy decision."
+            )
+        else:
+            policy_class = PolicyUsabilityClass.STRUCTURALLY_LIMITED
+            justification = (
+                f"Structural limitations dominate. Empirical status: "
+                f"{empirical_class}."
+            )
+
+    # RULE 4: Sound structure + good empirical → best class
+    elif structural_class in (
+        DecisionUsabilityClass.TRUSTED_COMPARABLE,
+        DecisionUsabilityClass.CONDITIONALLY_USABLE,
+    ):
+        if empirical_class == EmpiricalAlignmentClass.EMPIRICALLY_GROUNDED:
+            policy_class = PolicyUsabilityClass.SOUND_AND_ALIGNED
+            justification = (
+                f"Structural class: {structural_class}. External "
+                f"benchmarks confirm alignment. Suitable for policy use."
+            )
+        elif empirical_class in (
+            EmpiricalAlignmentClass.EMPIRICALLY_WEAK,
+            EmpiricalAlignmentClass.EMPIRICALLY_MIXED,
+        ):
+            policy_class = PolicyUsabilityClass.SOUND_BUT_WEAK
+            justification = (
+                f"Structural class: {structural_class}. External "
+                f"alignment is {empirical_class}. Use with empirical "
+                f"caveats documented."
+            )
+        elif empirical_class == EmpiricalAlignmentClass.NOT_EMPIRICALLY_ASSESSED:
+            policy_class = PolicyUsabilityClass.SOUND_BUT_WEAK
+            justification = (
+                f"Structural class: {structural_class}. No external "
+                f"validation available — empirical grounding unknown."
+            )
+        else:
+            policy_class = PolicyUsabilityClass.SOUND_BUT_WEAK
+            justification = (
+                f"Structural class: {structural_class}. Empirical "
+                f"status: {empirical_class}."
+            )
+
+    # RULE 5: Default — not assessed
+    else:
+        policy_class = PolicyUsabilityClass.NOT_ASSESSED
+        justification = (
+            f"Cannot determine combined class from structural="
+            f"{structural_class}, empirical={empirical_class}."
+        )
+
+    guidance = _build_policy_usability_guidance(policy_class)
+
+    return {
+        "policy_usability_class": policy_class,
+        "structural_class": structural_class,
+        "empirical_class": empirical_class,
+        "justification": justification,
+        "policy_guidance": guidance,
+    }
+
+
+def _build_policy_usability_guidance(policy_class: str) -> str:
+    """Generate policy guidance for a combined usability class."""
+    if policy_class == PolicyUsabilityClass.SOUND_AND_ALIGNED:
+        return (
+            "ISI output is structurally defensible and empirically "
+            "grounded. Suitable for cross-country comparison and "
+            "policy decision support. Standard methodological caveats "
+            "apply."
+        )
+    if policy_class == PolicyUsabilityClass.SOUND_BUT_WEAK:
+        return (
+            "ISI output is structurally defensible but empirical "
+            "alignment with external benchmarks is weak, mixed, or "
+            "not yet assessed. Use for policy decisions WITH explicit "
+            "documentation of empirical limitations."
+        )
+    if policy_class == PolicyUsabilityClass.EMPIRICALLY_CONTRADICTED:
+        return (
+            "CAUTION: External benchmarks contradict ISI output. "
+            "Before policy use, investigate whether divergence stems "
+            "from (a) ISI measurement issues, (b) construct differences, "
+            "or (c) genuine structural differences. Do NOT use without "
+            "resolution of the contradiction."
+        )
+    if policy_class == PolicyUsabilityClass.STRUCTURALLY_LIMITED:
+        return (
+            "ISI output provides directional insight only due to "
+            "structural limitations. NOT suitable for cross-country "
+            "ranking or comparison. Empirical alignment does not "
+            "override structural disqualification."
+        )
+    if policy_class == PolicyUsabilityClass.INVALID_FOR_POLICY_USE:
+        return (
+            "DO NOT use ISI output for this country in any policy "
+            "decision context. Both structural and empirical grounds "
+            "are insufficient."
+        )
+    return "Insufficient information for policy guidance."
+
+
 def classify_decision_usability(
     country: str,
     governance_result: dict[str, Any] | None = None,
     falsification_result: dict[str, Any] | None = None,
+    external_validation_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Classify a country's decision-grade usability.
 
@@ -171,15 +514,20 @@ def classify_decision_usability(
     3. Producer inversion count and severity
     4. Construct substitution extent
     5. Falsification flags (if available)
+    6. External validation alignment (if available)
 
     Args:
         country: ISO-2 country code.
         governance_result: Output of assess_country_governance(), or None
             (in which case it will be simulated).
         falsification_result: Output of assess_country_falsification(), or None.
+        external_validation_result: Output of
+            external_validation.build_external_validation_block() or
+            assess_country_alignment(). None if not available.
 
     Returns:
-        Dict with decision_usability_class, justification, conditions,
+        Dict with decision_usability_class, empirical_alignment,
+        policy_usability_class, justification, conditions,
         and policy-relevant guidance.
     """
     # Get eligibility classification
@@ -192,9 +540,16 @@ def classify_decision_usability(
             governance_result = _simulate_governance(country)
         else:
             # Cannot even compile → INVALID
+            empirical = classify_empirical_alignment(external_validation_result)
+            emp_class = empirical["empirical_class"]
+            policy = classify_policy_usability(
+                DecisionUsabilityClass.INVALID_FOR_COMPARISON, emp_class,
+            )
             return {
                 "country": country,
                 "decision_usability_class": DecisionUsabilityClass.INVALID_FOR_COMPARISON,
+                "empirical_alignment_class": emp_class,
+                "policy_usability_class": policy["policy_usability_class"],
                 "eligibility_class": eligibility_class,
                 "governance_tier": "N/A",
                 "justification": (
@@ -210,6 +565,8 @@ def classify_decision_usability(
                     falsification_result.get("overall_flag", "NOT_ASSESSED")
                     if falsification_result else "NOT_ASSESSED"
                 ),
+                "empirical_alignment": empirical,
+                "policy_usability": policy,
             }
 
     gov_tier = governance_result.get("governance_tier", "UNKNOWN")
@@ -314,9 +671,26 @@ def classify_decision_usability(
     # ── BUILD POLICY GUIDANCE ──
     guidance = _build_policy_guidance(usability_class, country, conditions)
 
+    # ── EMPIRICAL ALIGNMENT DIMENSION ──
+    empirical = classify_empirical_alignment(external_validation_result)
+    emp_class = empirical["empirical_class"]
+
+    # ── COMBINED POLICY USABILITY ──
+    policy = classify_policy_usability(usability_class, emp_class)
+
     return {
         "country": country,
         "decision_usability_class": usability_class,
+        "decision_usability_dimensions": _compute_usability_dimensions(
+            usability_class, ranking_eligible, gov_tier, conditions,
+            falsification_flag, n_inverted, mean_conf,
+        ),
+        "failure_modes": _compute_failure_modes(
+            usability_class, conditions, gov_tier, falsification_flag,
+            n_inverted, mean_conf, n_construct_sub,
+        ),
+        "empirical_alignment_class": emp_class,
+        "policy_usability_class": policy["policy_usability_class"],
         "eligibility_class": eligibility_class,
         "governance_tier": gov_tier,
         "mean_confidence": round(mean_conf, 3),
@@ -328,17 +702,23 @@ def classify_decision_usability(
         "n_proxy_axes": n_proxy,
         "conditions": conditions,
         "falsification_flag": falsification_flag,
+        "empirical_alignment": empirical,
+        "policy_usability": policy,
         "justification": (
-            f"Country {country} classified as {usability_class} based on "
+            f"Country {country} classified as {usability_class} "
+            f"(structural), {emp_class} (empirical), "
+            f"→ {policy['policy_usability_class']} (policy) based on "
             f"governance tier ({gov_tier}), {n_inverted} inversions, "
             f"{n_high} HIGH-confidence axes, falsification={falsification_flag}."
         ),
-        "policy_guidance": guidance,
+        "policy_guidance": policy["policy_guidance"],
         "theoretical_caveat": (
-            "This usability classification is derived from the ISI "
-            "system's internal governance rules and structural analysis. "
-            "It has NOT been validated against external expert panel "
-            "assessments or policy-maker feedback."
+            "The structural usability classification is derived from the ISI "
+            "system's internal governance rules and has NOT been validated "
+            "against external expert panel assessments. The empirical "
+            "alignment dimension reflects comparison against external "
+            "benchmarks where available. Combined policy usability "
+            "integrates both dimensions."
         ),
     }
 
@@ -375,6 +755,177 @@ def _build_policy_guidance(
             f"{'; '.join(conditions)}."
         )
     return f"Usability assessment for {country}: {usability_class}."
+
+
+def _compute_usability_dimensions(
+    usability_class: str,
+    ranking_eligible: bool,
+    governance_tier: str,
+    conditions: list[str],
+    falsification_flag: str,
+    n_inverted: int,
+    mean_confidence: float,
+) -> dict[str, bool]:
+    """Compute per-dimension usability assessment.
+
+    Returns a dict with:
+        ranking: bool — suitable for ordinal ranking
+        directional_insight: bool — suitable for directional analysis
+        policy_design: bool — suitable for policy design input
+        stress_testing: bool — suitable for scenario/stress testing
+
+    These are NOT independent — they form a hierarchy where each
+    higher-level use requires all lower-level suitability.
+    """
+    # Ranking: most restrictive
+    ranking = (
+        usability_class in (
+            DecisionUsabilityClass.TRUSTED_COMPARABLE,
+            DecisionUsabilityClass.CONDITIONALLY_USABLE,
+        )
+        and ranking_eligible
+        and governance_tier in ("FULLY_COMPARABLE", "PARTIALLY_COMPARABLE")
+        and falsification_flag != "CONTRADICTION"
+    )
+
+    # Policy design: requires at least conditionally usable
+    policy_design = (
+        usability_class in (
+            DecisionUsabilityClass.TRUSTED_COMPARABLE,
+            DecisionUsabilityClass.CONDITIONALLY_USABLE,
+        )
+        and falsification_flag != "CONTRADICTION"
+        and n_inverted < 3
+    )
+
+    # Stress testing: works even with limitations (scenario analysis)
+    stress_testing = (
+        usability_class != DecisionUsabilityClass.INVALID_FOR_COMPARISON
+        and mean_confidence > 0.20
+    )
+
+    # Directional insight: least restrictive — anything computable
+    directional_insight = (
+        usability_class != DecisionUsabilityClass.INVALID_FOR_COMPARISON
+    )
+
+    return {
+        "ranking": ranking,
+        "directional_insight": directional_insight,
+        "policy_design": policy_design,
+        "stress_testing": stress_testing,
+    }
+
+
+def _compute_failure_modes(
+    usability_class: str,
+    conditions: list[str],
+    governance_tier: str,
+    falsification_flag: str,
+    n_inverted: int,
+    mean_confidence: float,
+    n_construct_sub: int,
+) -> list[dict[str, str]]:
+    """Compute structured failure modes for decision usability.
+
+    Each failure mode describes:
+        condition: what triggered it
+        effect: what it means for the output
+        severity: WARNING | ERROR | CRITICAL
+    """
+    modes: list[dict[str, str]] = []
+
+    if governance_tier == "NON_COMPARABLE":
+        modes.append({
+            "condition": f"Governance tier: {governance_tier}",
+            "effect": "Output is structurally compromised. No comparative use.",
+            "severity": "CRITICAL",
+        })
+    elif governance_tier == "LOW_CONFIDENCE":
+        modes.append({
+            "condition": f"Governance tier: {governance_tier}",
+            "effect": "Output provides directional insight only. Not rankable.",
+            "severity": "ERROR",
+        })
+
+    if falsification_flag == "CONTRADICTION":
+        modes.append({
+            "condition": "Falsification contradiction detected",
+            "effect": (
+                "Internal checks contradict governance classification. "
+                "Output reliability is unknown."
+            ),
+            "severity": "CRITICAL",
+        })
+    elif falsification_flag == "TENSION":
+        modes.append({
+            "condition": "Falsification tension detected",
+            "effect": (
+                "Internal checks show tension with governance classification. "
+                "Use with heightened scrutiny."
+            ),
+            "severity": "WARNING",
+        })
+
+    if n_inverted >= 3:
+        modes.append({
+            "condition": f"{n_inverted} producer-inverted axes",
+            "effect": (
+                "Majority of profile measures absence of import dependency, "
+                "not vulnerability. Construct is fundamentally different."
+            ),
+            "severity": "CRITICAL",
+        })
+    elif n_inverted >= 2:
+        modes.append({
+            "condition": f"{n_inverted} producer-inverted axes",
+            "effect": (
+                "Significant construct inversion. Cross-country comparison "
+                "with non-producer countries is misleading."
+            ),
+            "severity": "ERROR",
+        })
+    elif n_inverted == 1:
+        modes.append({
+            "condition": "1 producer-inverted axis",
+            "effect": "One axis measures different construct. Document in comparison.",
+            "severity": "WARNING",
+        })
+
+    if n_construct_sub >= 2:
+        modes.append({
+            "condition": f"{n_construct_sub} axes use construct substitution",
+            "effect": (
+                "Multiple axes measure related but different constructs. "
+                "Composite is a weighted mix of real and proxy measurements."
+            ),
+            "severity": "WARNING",
+        })
+
+    if mean_confidence < 0.35:
+        modes.append({
+            "condition": f"Mean confidence: {mean_confidence:.2f}",
+            "effect": "Very low confidence across axes. All outputs are fragile.",
+            "severity": "ERROR",
+        })
+    elif mean_confidence < 0.45:
+        modes.append({
+            "condition": f"Mean confidence: {mean_confidence:.2f}",
+            "effect": "Below-threshold confidence. Ranking excluded.",
+            "severity": "WARNING",
+        })
+
+    for cond in conditions:
+        # Avoid duplicating conditions already covered above
+        if any(cond in m["condition"] for m in modes):
+            continue
+        modes.append({
+            "condition": cond,
+            "effect": "Contributes to usability limitation.",
+            "severity": "WARNING",
+        })
+
+    return modes
 
 
 # ═══════════════════════════════════════════════════════════════════════════

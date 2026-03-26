@@ -1,6 +1,11 @@
 # ISI Backend Structure — Complete Cartography
 
-> **Generated**: Audit-grade hardening pass (Tasks 2.1–2.9).
+> **Generated**: Audit-grade hardening pass (Tasks 2.1–2.9) +
+> External Validation & Benchmark Integration pass +
+> Final Adversarial Hardening pass +
+> Institutionalization pass +
+> Final Error/Problem Audit pass.
+> **Updated**: Final Error/Problem Audit — all counts verified against code.
 > **Scope**: Every file, its role, its dependencies, and its position
 > in the execution and governance architecture.
 >
@@ -18,13 +23,23 @@ Panargus-isi/
 │   ├── axis_result.py            # (803 lines) AxisResult/CompositeResult data classes + composite computation
 │   ├── severity.py               # (1598 lines) Severity scoring, comparability, sensitivity analysis
 │   ├── governance.py             # (919 lines) Governance tier rules, confidence, export gating
-│   ├── calibration.py            # (2831 lines) Threshold registry, falsifiability, sensitivity, eligibility metadata (SUPPLEMENTARY — see eligibility.py)
-│   ├── eligibility.py            # (1935 lines) AUTHORITATIVE eligibility + readiness + decision usability classification
+│   ├── calibration.py            # (2848 lines) Threshold registry, falsifiability, sensitivity, eligibility metadata (SUPPLEMENTARY — see eligibility.py)
+│   ├── eligibility.py            # (2485 lines) AUTHORITATIVE eligibility + readiness + decision usability + empirical alignment + policy usability
 │   ├── threshold_registry.py     # (1154 lines) Machine-readable threshold justification registry (27 thresholds)
-│   ├── falsification.py          # (~400 lines) External contradiction testing — structural falsification engine
+│   ├── falsification.py          # (~540 lines) External contradiction testing — structural falsification engine
+│   ├── benchmark_registry.py     # (872 lines) External benchmark definitions — 11 benchmarks across 6 axes
+│   ├── external_validation.py    # (1078 lines) Alignment engine — compares ISI vs external benchmarks
+│   ├── invariants.py             # (1611 lines) 28 structural invariants across 8 types (CROSS_AXIS, GOVERNANCE, TEMPORAL, EXTERNAL_VALIDITY, CONSTRUCT_ENFORCEMENT, FAILURE_VISIBILITY, AUTHORITY_CONSISTENCY, REALITY_CONFLICT)
+│   ├── construct_enforcement.py  # (439 lines) Construct validity enforcement — degrades/excludes invalid constructs from composite
+│   ├── benchmark_mapping_audit.py # (769 lines) Formal mapping audit for all 11 benchmarks — VALID/WEAK/INVALID classification
+│   ├── alignment_sensitivity.py  # (546 lines) Alignment robustness testing — leave-one-out, noise, shift, aggregation swap
+│   ├── failure_visibility.py     # (662 lines) Anti-bullshit layer — visibility flags, trust levels, usability hardening
+│   ├── provenance.py             # (580 lines) Computation provenance tracking
+│   ├── reality_conflicts.py      # (650 lines) Reality conflict detection — governance vs alignment contradictions
+│   ├── snapshot_diff.py          # (992 lines) Snapshot difference computation + policy impact assessment
 │   ├── methodology.py            # (305 lines) Methodology version registry + classification
-│   ├── export_snapshot.py        # (921 lines) JSON snapshot materialization + hashing (includes falsification + decision usability)
-│   ├── isi_api_v01.py            # (1350 lines) FastAPI serving layer — all REST endpoints
+│   ├── export_snapshot.py        # (1317 lines) JSON snapshot materialization + hashing (full pipeline: falsification, decision usability, external validation, construct enforcement, alignment sensitivity, failure visibility, reality conflicts, invariants)
+│   ├── isi_api_v01.py            # (1503 lines) FastAPI serving layer — 17 REST endpoints
 │   ├── scenario.py               # (391 lines) What-if scenario simulation engine
 │   ├── scope.py                  # (233 lines) Country/axis scope management
 │   ├── hardening.py              # (105 lines) Input validation utilities (path, float, JSON)
@@ -69,9 +84,13 @@ Panargus-isi/
 │       ├── sipri.py              # (627 lines) SIPRI arms transfers ingestion
 │       └── logistics.py          # (451 lines) Eurostat bilateral logistics ingestion
 │
-├── tests/                        # 1377 tests (18 test files)
+├── tests/                        # 1715 tests (22 test files)
 │   ├── test_institutional_upgrade.py  # (82 tests) 4-layer institutional upgrade: threshold registry, falsification, decision usability, authority unification
 │   ├── test_eligibility_hardening.py  # (104 tests) Eligibility + readiness registry
+│   ├── test_external_validation.py    # (100 tests) External validation + benchmark registry + alignment engine + construct validity
+│   ├── test_empirical_alignment.py    # (38 tests) Empirical alignment dimension + policy usability classification + export integration
+│   ├── test_final_hardening.py        # (102 tests) Final adversarial hardening: construct enforcement, mapping audit, alignment sensitivity, policy impact, failure visibility, CE-INV invariants
+│   ├── test_systems_hardening.py      # Systems hardening: invariants, provenance, snapshot diff
 │   ├── test_ingestion_pipeline.py     # Ingestion pipeline tests
 │   ├── test_elevation.py              # Elevation/governance tests
 │   ├── test_correctness_hardening.py  # Correctness invariants
@@ -99,6 +118,7 @@ Panargus-isi/
 │   ├── THRESHOLD_JUSTIFICATION.md # Machine-readable threshold justification registry (Layer 1)
 │   ├── FALSIFICATION_FRAMEWORK.md # External contradiction testing framework (Layer 2)
 │   ├── AUTHORITY_UNIFICATION.md   # Single source of truth — authority hierarchy (Layer 4)
+│   ├── AGENT_RULES.md             # Agent-facing codebase rules and constraints
 │   ├── ISI_METHODOLOGY_SPECIFICATION.md
 │   ├── ISI_V01_SPECIFICATION.md
 │   ├── ISI_CONSTRAINT_SPECIFICATION.md
@@ -152,20 +172,31 @@ Panargus-isi/
 | `backend/methodology.py` | **Methodology registry** — version-pinned classification bands, composite formula, thresholds | get_methodology, classify, compute_composite | 305 |
 | `backend/severity.py` | **Severity engine** — data quality severity scoring, comparability tiering, sensitivity analysis, stability, shock simulation | compute_axis_severity, assign_comparability_tier, compute_adjusted_composite, compute_sensitivity_analysis | 1598 |
 
-### 2.2 Governance Layer
+### 2.2 Governance & Validation Layer
 
 | File | Role | Key Exports | Lines |
 |------|------|-------------|-------|
 | `backend/governance.py` | **Governance model** — axis confidence assessment, governance tier determination, ranking eligibility, export gating, truthfulness contract | assess_axis_confidence, assess_country_governance, gate_export, enforce_truthfulness_contract | 919 |
-| `backend/calibration.py` | **Calibration registry** — 100+ threshold entries with CalibrationClass tags, falsifiability registry, circularity audit, sensitivity analysis, country eligibility | get_threshold_registry, get_falsifiability_registry, get_circularity_audit, run_sensitivity_analysis | 2795 |
-| `backend/eligibility.py` | **Eligibility model** — theoretical country classification, 4-question hierarchy, axis-by-country readiness, construct substitution, rule provenance | classify_country, can_compile/rate/rank/compare, build_full_registry, build_full_readiness_registry | 1660 |
+| `backend/calibration.py` | **Calibration registry** — 100+ threshold entries with CalibrationClass tags, falsifiability registry, circularity audit, sensitivity analysis, country eligibility metadata (SUPPLEMENTARY) | get_threshold_registry, get_falsifiability_registry, get_circularity_audit, run_sensitivity_analysis | 2848 |
+| `backend/eligibility.py` | **Eligibility model** — theoretical country classification, 4-question hierarchy, axis-by-country readiness, construct substitution, decision usability, empirical alignment, policy usability | classify_country, classify_decision_usability, classify_empirical_alignment, classify_policy_usability, build_axis_readiness_matrix, can_compile/rate/rank/compare | 2485 |
+| `backend/benchmark_registry.py` | **Benchmark registry** — 11 external benchmark definitions across 6 axes with comparison types, alignment thresholds, integration status, BenchmarkAuthority hierarchy | get_benchmark_registry, get_benchmarks_for_axis, get_benchmark_by_id, AlignmentClass, ComparisonType | 872 |
+| `backend/external_validation.py` | **Alignment engine** — compares ISI output against external benchmarks, produces per-axis and overall alignment assessments, weighted alignment with authority hierarchy | compare_to_benchmark, assess_country_alignment, build_external_validation_block | 1078 |
+| `backend/invariants.py` | **Invariant system** — 28 structural invariants across 8 types (CROSS_AXIS, GOVERNANCE, TEMPORAL, EXTERNAL_VALIDITY, CONSTRUCT_ENFORCEMENT, FAILURE_VISIBILITY, AUTHORITY_CONSISTENCY, REALITY_CONFLICT), violation detection, severity classification | assess_country_invariants, check_external_validity_invariants, INVARIANT_REGISTRY | 1611 |
+| `backend/falsification.py` | **Falsification engine** — structural contradiction testing against known economic facts | assess_country_falsification, STRUCTURAL_FACTS, BENCHMARK_REGISTRY | ~540 |
+| `backend/provenance.py` | **Provenance tracking** — computation trace recording and audit trail | provenance tracking utilities | 580 |
+| `backend/reality_conflicts.py` | **Reality conflict detection** — governance vs alignment contradictions, structural entries not flags | detect_reality_conflicts, detect_governance_alignment_mismatch | 650 |
+| `backend/construct_enforcement.py` | **Construct enforcement** — degrades/excludes invalid constructs, weight adjustment for composite | enforce_all_axes, enforce_construct_validity, should_exclude_from_ranking | 438 |
+| `backend/benchmark_mapping_audit.py` | **Mapping audit** — formal validity classification for benchmark-to-ISI mappings | validate_benchmark_mapping, should_downgrade_alignment | 769 |
+| `backend/alignment_sensitivity.py` | **Alignment sensitivity** — robustness testing (leave-one-out, noise, shift) | run_alignment_sensitivity, should_downgrade_for_instability | 545 |
+| `backend/failure_visibility.py` | **Anti-bullshit layer** — aggregates ALL flags into unified visibility block with trust levels | build_visibility_block, collect_validity_warnings | 662 |
+| `backend/snapshot_diff.py` | **Snapshot diffing** — structural comparison between snapshot versions, tracks governance/visibility/enforcement/sensitivity changes | diff_country, compare_snapshots | 992 |
 
 ### 2.3 Export & Serving Layer
 
 | File | Role | Key Exports | Lines |
 |------|------|-------------|-------|
-| `backend/export_snapshot.py` | **Snapshot materialization** — builds isi.json, country/*.json, axis/*.json; applies governance gating; computes hashes; makes snapshots read-only | build_isi_json, build_country_json, build_axis_json, materialize_snapshot | 874 |
-| `backend/isi_api_v01.py` | **REST API** — FastAPI app with 16 endpoints; serves frozen snapshots; scenario simulation; methodology versioning | app (FastAPI), all endpoint handlers | 1350 |
+| `backend/export_snapshot.py` | **Snapshot materialization** — builds isi.json, country/*.json, axis/*.json; integrates ALL layers (governance, falsification, decision usability, external validation, construct enforcement, alignment sensitivity, failure visibility, reality conflicts, invariants); computes hashes; makes snapshots read-only | build_isi_json, build_country_json, build_axis_json, materialize_snapshot | 1317 |
+| `backend/isi_api_v01.py` | **REST API** — FastAPI app with 17 endpoints; serves frozen snapshots; scenario simulation; methodology versioning | app (FastAPI), all endpoint handlers | 1503 |
 | `backend/scenario.py` | **Scenario engine** — what-if simulation for supplier removal/shift | ScenarioRequest, ScenarioResponse, simulate | 391 |
 | `backend/scope.py` | **Scope management** — country and axis scope definitions for selective computation | scope-related utilities | 233 |
 
@@ -242,7 +273,21 @@ pipeline/orchestrator.py::run_pipeline()
     backend/governance.py                (governance tier + confidence + gating)
            │
            ▼
-    backend/export_snapshot.py           (JSON materialization + hashing + signing)
+    backend/eligibility.py               (decision usability + readiness matrix + empirical alignment)
+           │
+           ▼
+    backend/export_snapshot.py           (JSON materialization — full pipeline below)
+           │
+           ├──→ falsification            (structural contradiction testing)
+           ├──→ decision_usability       (usability classification)
+           ├──→ external_validation      (alignment with external benchmarks)
+           ├──→ construct_enforcement    (construct validity per axis)
+           ├──→ benchmark_mapping_audit  (mapping validity classification)
+           ├──→ alignment_sensitivity    (robustness testing)
+           ├──→ empirical_alignment      (empirical grounding classification)
+           ├──→ invariant_assessment     (28 structural invariant checks)
+           ├──→ failure_visibility       (anti-bullshit layer — receives ALL upstream data)
+           └──→ reality_conflicts        (governance vs alignment contradictions)
            │
            ▼
     backend/v01/ (frozen snapshot)
@@ -427,20 +472,26 @@ read-only by `immutability.py`. They are NOT edited manually.
 
 ### 7.5 Test Coverage Is Comprehensive But Not Exhaustive
 
-1295 tests cover all major invariants, governance rules, eligibility
-classifications, API contracts, and cryptographic integrity. Tests do NOT
-claim empirical validation — they verify internal consistency.
+1860 tests cover all major invariants, governance rules, eligibility
+classifications, API contracts, cryptographic integrity, external
+validation alignment, empirical alignment classification, policy
+usability derivation, integration wiring, reality conflicts, and
+institutionalization. Tests verify both internal consistency AND that
+all hardening layers are actually wired into the production export
+pipeline (not just tested in isolation). Tests do NOT claim the
+benchmarks themselves are correct — they verify that the system's
+handling of benchmarks is structurally sound.
 
 ## 8. File Count Summary
 
 | Directory | Python Files | Lines of Code | Purpose |
-|-----------|-------------|---------------|---------|
-| `backend/` | 22 | ~12,600 | Computation + governance + export + API |
-| `pipeline/` | 9 | ~3,700 | Ingestion + validation + normalization |
-| `pipeline/ingest/` | 5 | ~2,476 | Per-source data ingestion |
-| `tests/` | 17 | ~14,500 | 1295 tests |
+|-----------|-------------|---------------|----------|
+| `backend/` | 35 | ~25,100 | Computation + governance + validation + export + API |
+| `pipeline/` | 14 | ~5,400 | Ingestion + validation + normalization |
+| `pipeline/ingest/` | 6 | ~2,500 | Per-source data ingestion |
+| `tests/` | 25 | ~22,500 | 1860 tests |
 | `scripts/` | 2 | ~270 | Manifest generation + smoke test |
-| **Total** | **55** | **~33,900** | |
+| **Total** | **76** | **~53,300** | |
 
 ## 9. Self-Audit: What This Document Does NOT Cover
 
