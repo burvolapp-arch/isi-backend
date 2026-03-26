@@ -44,12 +44,14 @@ class PublishabilityStatus:
     """Classification of publishability."""
     PUBLISHABLE = "PUBLISHABLE"
     PUBLISHABLE_WITH_CAVEATS = "PUBLISHABLE_WITH_CAVEATS"
+    RESTRICTED = "RESTRICTED"
     NOT_PUBLISHABLE = "NOT_PUBLISHABLE"
 
 
 VALID_PUBLISHABILITY_STATUSES = frozenset({
     PublishabilityStatus.PUBLISHABLE,
     PublishabilityStatus.PUBLISHABLE_WITH_CAVEATS,
+    PublishabilityStatus.RESTRICTED,
     PublishabilityStatus.NOT_PUBLISHABLE,
 })
 
@@ -206,6 +208,33 @@ def assess_publishability(
                 "result": "CAVEATS",
                 "detail": f"{n_conflicts} authority conflict(s) require caveats.",
             })
+
+        # ── Check 4b: Residual authority conflicts → RESTRICTED ──
+        if authority_conflicts.get("has_residual_conflict", False):
+            residual_severity = authority_conflicts.get(
+                "residual_conflict_severity", "WARNING",
+            )
+            if (
+                residual_severity in ("ERROR", "CRITICAL")
+                and status in (
+                    PublishabilityStatus.PUBLISHABLE,
+                    PublishabilityStatus.PUBLISHABLE_WITH_CAVEATS,
+                )
+            ):
+                status = PublishabilityStatus.RESTRICTED
+                caveats.append(
+                    f"Residual authority conflict (severity: {residual_severity}). "
+                    f"Output restricted — claim cannot be trivially extracted "
+                    f"as stronger than evidence supports."
+                )
+                reasons.append({
+                    "check": "residual_conflict_restriction",
+                    "result": "RESTRICTED",
+                    "detail": (
+                        f"Residual conflict severity {residual_severity} "
+                        f"triggers RESTRICTED status."
+                    ),
+                })
 
     # ── Check 5: Data completeness ──
     if data_completeness is not None:

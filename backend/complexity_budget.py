@@ -62,6 +62,17 @@ MAX_PIPELINE_LAYERS: int = 20
 # Enforcement rule budget
 MAX_ENFORCEMENT_RULES: int = 20
 
+# ── Endgame Pass v2: Additional complexity budgets ──
+
+# Dependency depth: max import chain depth
+MAX_DEPENDENCY_DEPTH: int = 8
+
+# Reasoning chain: max steps in any single decision chain
+MAX_REASONING_CHAIN_LENGTH: int = 15
+
+# Authority conflict layers: max number of authority resolution layers
+MAX_AUTHORITY_CONFLICT_LAYERS: int = 5
+
 
 class BudgetStatus:
     """Status of a complexity budget."""
@@ -109,6 +120,9 @@ def audit_complexity(
     n_invariants: int = 0,
     n_pipeline_layers: int = 0,
     n_enforcement_rules: int = 0,
+    n_dependency_depth: int = 0,
+    n_reasoning_chain_length: int = 0,
+    n_authority_conflict_layers: int = 0,
 ) -> dict[str, Any]:
     """Audit the system's structural complexity against budgets.
 
@@ -118,6 +132,9 @@ def audit_complexity(
         n_invariants: Number of registered invariants.
         n_pipeline_layers: Number of pipeline layers.
         n_enforcement_rules: Number of enforcement rules.
+        n_dependency_depth: Maximum import chain depth.
+        n_reasoning_chain_length: Maximum reasoning chain length.
+        n_authority_conflict_layers: Number of authority conflict resolution layers.
 
     Returns:
         Complexity audit with per-budget status and overall assessment.
@@ -211,6 +228,50 @@ def audit_complexity(
             f"Enforcement rules: {n_enforcement_rules}/{MAX_ENFORCEMENT_RULES}"
         )
 
+    # ── Dependency depth ──
+    dep_budget = _check_budget(
+        "dependency_depth", n_dependency_depth, MAX_DEPENDENCY_DEPTH,
+    )
+    budgets.append(dep_budget)
+    if dep_budget["status"] == BudgetStatus.EXCEEDED:
+        exceeded.append(
+            f"Dependency depth: {n_dependency_depth}/{MAX_DEPENDENCY_DEPTH}"
+        )
+    elif dep_budget["status"] == BudgetStatus.WARNING:
+        warnings.append(
+            f"Dependency depth: {n_dependency_depth}/{MAX_DEPENDENCY_DEPTH} (≥80%)"
+        )
+
+    # ── Reasoning chain length ──
+    chain_budget = _check_budget(
+        "reasoning_chain_length", n_reasoning_chain_length,
+        MAX_REASONING_CHAIN_LENGTH,
+    )
+    budgets.append(chain_budget)
+    if chain_budget["status"] == BudgetStatus.EXCEEDED:
+        exceeded.append(
+            f"Reasoning chain: {n_reasoning_chain_length}/{MAX_REASONING_CHAIN_LENGTH}"
+        )
+    elif chain_budget["status"] == BudgetStatus.WARNING:
+        warnings.append(
+            f"Reasoning chain: {n_reasoning_chain_length}/{MAX_REASONING_CHAIN_LENGTH} (≥80%)"
+        )
+
+    # ── Authority conflict layers ──
+    auth_budget = _check_budget(
+        "authority_conflict_layers", n_authority_conflict_layers,
+        MAX_AUTHORITY_CONFLICT_LAYERS,
+    )
+    budgets.append(auth_budget)
+    if auth_budget["status"] == BudgetStatus.EXCEEDED:
+        exceeded.append(
+            f"Authority conflict layers: {n_authority_conflict_layers}/{MAX_AUTHORITY_CONFLICT_LAYERS}"
+        )
+    elif auth_budget["status"] == BudgetStatus.WARNING:
+        warnings.append(
+            f"Authority conflict layers: {n_authority_conflict_layers}/{MAX_AUTHORITY_CONFLICT_LAYERS} (≥80%)"
+        )
+
     # ── Overall status ──
     if exceeded:
         overall = BudgetStatus.EXCEEDED
@@ -233,6 +294,9 @@ def audit_complexity(
             "n_invariants": n_invariants,
             "n_pipeline_layers": n_pipeline_layers,
             "n_enforcement_rules": n_enforcement_rules,
+            "n_dependency_depth": n_dependency_depth,
+            "n_reasoning_chain_length": n_reasoning_chain_length,
+            "n_authority_conflict_layers": n_authority_conflict_layers,
             "max_module_lines": max_module_lines,
             "largest_module": largest_module,
             "total_lines": total_lines,

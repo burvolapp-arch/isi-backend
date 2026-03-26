@@ -68,6 +68,11 @@ INFRASTRUCTURE_MODULES = frozenset({
     "authority_conflicts",          # Conflict detection (used by export pipeline)
     "publishability",               # Publishability assessment (used by export pipeline)
     "complexity_budget",            # Complexity budget (meta-governance tool)
+    # ── Endgame Pass v2: epistemic monotonicity/arbiter infrastructure ──
+    "epistemic_bounds",             # Bounds propagation (used by arbiter)
+    "epistemic_invariants",         # Monotonicity invariants (enforcement tool)
+    "authority_precedence",         # Precedence resolution (used by arbiter)
+    "epistemic_arbiter",            # Final epistemic authority (used by export pipeline)
 })
 
 # Core computation modules that MUST be imported by export_snapshot.py

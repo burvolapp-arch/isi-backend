@@ -88,6 +88,230 @@ VALID_OVERRIDE_OUTCOMES = frozenset({
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# OVERRIDE STRENGTH — how strongly does this override constrain output?
+# ═══════════════════════════════════════════════════════════════════════════
+
+class OverrideStrength:
+    """Strength classification of an override's epistemic pressure.
+
+    NONE:     No override pressure — authorities agree.
+    WEAK:     Minor discrepancy, low-tier authority, advisory only.
+    MODERATE: Meaningful discrepancy, requires caveat/context.
+    STRONG:   Significant contradiction, high-tier authority,
+              output must be restricted or downgraded.
+    DECISIVE: Irreconcilable contradiction from primary authority,
+              output must be blocked or fundamentally altered.
+
+    Design rule: CONTEXTUAL override (Tier 3 flag) ≠ DECISIVE.
+    Only Tier 1 contradictions with large magnitude can be DECISIVE.
+    """
+    NONE = "NONE"
+    WEAK = "WEAK"
+    MODERATE = "MODERATE"
+    STRONG = "STRONG"
+    DECISIVE = "DECISIVE"
+
+
+VALID_OVERRIDE_STRENGTHS = frozenset({
+    OverrideStrength.NONE,
+    OverrideStrength.WEAK,
+    OverrideStrength.MODERATE,
+    OverrideStrength.STRONG,
+    OverrideStrength.DECISIVE,
+})
+
+# Strength ordering — higher = more pressure
+OVERRIDE_STRENGTH_ORDER: dict[str, int] = {
+    OverrideStrength.NONE: 0,
+    OverrideStrength.WEAK: 1,
+    OverrideStrength.MODERATE: 2,
+    OverrideStrength.STRONG: 3,
+    OverrideStrength.DECISIVE: 4,
+}
+
+
+@dataclass(frozen=True)
+class OverridePressure:
+    """Aggregate override pressure from all evaluated overrides.
+
+    This captures the TOTAL epistemic pressure exerted by all
+    external authority overrides on a country's output.
+
+    Attributes:
+        max_strength: The strongest individual override strength.
+        n_overrides: Total number of overrides evaluated.
+        n_strong_or_decisive: Overrides at STRONG or DECISIVE level.
+        confidence_cap: Maximum confidence allowed given override pressure.
+        can_rank: Whether ranking is permitted under this pressure.
+        can_compare: Whether comparison is permitted.
+        requires_caveats: Whether mandatory caveats are needed.
+        pressure_reasons: Why this pressure level was assigned.
+    """
+    max_strength: str
+    n_overrides: int
+    n_strong_or_decisive: int
+    confidence_cap: float
+    can_rank: bool
+    can_compare: bool
+    requires_caveats: bool
+    pressure_reasons: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.max_strength not in VALID_OVERRIDE_STRENGTHS:
+            raise ValueError(
+                f"Invalid override strength: {self.max_strength}. "
+                f"Must be one of {sorted(VALID_OVERRIDE_STRENGTHS)}"
+            )
+
+
+def override_pressure_to_dict(pressure: OverridePressure) -> dict[str, Any]:
+    """Serialize an OverridePressure to a JSON-safe dict."""
+    return {
+        "max_strength": pressure.max_strength,
+        "n_overrides": pressure.n_overrides,
+        "n_strong_or_decisive": pressure.n_strong_or_decisive,
+        "confidence_cap": pressure.confidence_cap,
+        "can_rank": pressure.can_rank,
+        "can_compare": pressure.can_compare,
+        "requires_caveats": pressure.requires_caveats,
+        "pressure_reasons": list(pressure.pressure_reasons),
+    }
+
+
+def classify_override_strength(
+    result: OverrideResult,
+) -> str:
+    """Classify the strength of an individual override result.
+
+    Rules:
+        - NO_CONFLICT → NONE
+        - FLAGGED + Tier 3 → WEAK
+        - FLAGGED + Tier 2 → MODERATE
+        - RESTRICTED + any tier → MODERATE to STRONG
+        - ACCEPTED + Tier 1 → STRONG
+        - BLOCKED + any tier → DECISIVE
+        - CONTEXTUAL override (Tier 3 flag) ≠ DECISIVE
+    """
+    if result.outcome == OverrideOutcome.NO_CONFLICT:
+        return OverrideStrength.NONE
+
+    if result.outcome == OverrideOutcome.BLOCKED:
+        return OverrideStrength.DECISIVE
+
+    if result.outcome == OverrideOutcome.ACCEPTED:
+        if result.authority_tier == AuthorityTier.TIER_1_PRIMARY:
+            return OverrideStrength.STRONG
+        return OverrideStrength.MODERATE
+
+    if result.outcome == OverrideOutcome.RESTRICTED:
+        if result.authority_tier in (
+            AuthorityTier.TIER_1_PRIMARY,
+            AuthorityTier.TIER_2_AUTHORITATIVE,
+        ):
+            return OverrideStrength.STRONG
+        return OverrideStrength.MODERATE
+
+    # FLAGGED
+    if result.authority_tier == AuthorityTier.TIER_3_SUPPORTING:
+        return OverrideStrength.WEAK
+    if result.authority_tier == AuthorityTier.TIER_2_AUTHORITATIVE:
+        return OverrideStrength.MODERATE
+    return OverrideStrength.MODERATE
+
+
+def compute_override_pressure(
+    results: list[OverrideResult],
+) -> OverridePressure:
+    """Compute aggregate override pressure from all override results.
+
+    This produces a single OverridePressure that summarizes the
+    total epistemic constraint imposed by external authorities.
+
+    Rules:
+        - Max strength = highest individual strength.
+        - Confidence cap: DECISIVE→0.0, STRONG→0.6, MODERATE→0.8, WEAK→0.9
+        - Mixed strong authorities from different sources → cannot upgrade.
+        - Any DECISIVE → ranking and comparison disabled.
+    """
+    if not results:
+        return OverridePressure(
+            max_strength=OverrideStrength.NONE,
+            n_overrides=0,
+            n_strong_or_decisive=0,
+            confidence_cap=1.0,
+            can_rank=True,
+            can_compare=True,
+            requires_caveats=False,
+            pressure_reasons=(),
+        )
+
+    strengths = [classify_override_strength(r) for r in results]
+    strength_indices = [OVERRIDE_STRENGTH_ORDER[s] for s in strengths]
+    max_idx = max(strength_indices)
+
+    # Find max strength name
+    max_strength = OverrideStrength.NONE
+    for s, idx in zip(strengths, strength_indices):
+        if idx == max_idx:
+            max_strength = s
+            break
+
+    n_strong_or_decisive = sum(
+        1 for s in strengths
+        if s in (OverrideStrength.STRONG, OverrideStrength.DECISIVE)
+    )
+
+    # Confidence cap based on max strength
+    cap_map = {
+        OverrideStrength.NONE: 1.0,
+        OverrideStrength.WEAK: 0.9,
+        OverrideStrength.MODERATE: 0.8,
+        OverrideStrength.STRONG: 0.6,
+        OverrideStrength.DECISIVE: 0.0,
+    }
+    confidence_cap = cap_map.get(max_strength, 1.0)
+
+    # Ranking and comparison
+    can_rank = max_strength != OverrideStrength.DECISIVE
+    can_compare = max_strength != OverrideStrength.DECISIVE
+
+    # Mixed strong authorities → extra restriction
+    reasons: list[str] = []
+    if n_strong_or_decisive > 1:
+        strong_authorities = [
+            r.authority_id for r, s in zip(results, strengths)
+            if s in (OverrideStrength.STRONG, OverrideStrength.DECISIVE)
+        ]
+        reasons.append(
+            f"Multiple strong/decisive overrides from {strong_authorities}. "
+            f"Cannot upgrade — mixed authority pressure."
+        )
+        confidence_cap = min(confidence_cap, 0.5)
+
+    requires_caveats = max_strength in (
+        OverrideStrength.MODERATE,
+        OverrideStrength.STRONG,
+        OverrideStrength.DECISIVE,
+    )
+
+    if max_strength == OverrideStrength.DECISIVE:
+        reasons.append("DECISIVE override — output must be blocked or restricted.")
+    elif max_strength == OverrideStrength.STRONG:
+        reasons.append("STRONG override — output confidence capped at 0.6.")
+
+    return OverridePressure(
+        max_strength=max_strength,
+        n_overrides=len(results),
+        n_strong_or_decisive=n_strong_or_decisive,
+        confidence_cap=confidence_cap,
+        can_rank=can_rank,
+        can_compare=can_compare,
+        requires_caveats=requires_caveats,
+        pressure_reasons=tuple(reasons),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # OVERRIDE RESULT
 # ═══════════════════════════════════════════════════════════════════════════
 

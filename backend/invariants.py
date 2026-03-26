@@ -46,6 +46,7 @@ class InvariantType:
     REALITY_CONFLICT = "REALITY_CONFLICT"
     PIPELINE_INTEGRITY = "PIPELINE_INTEGRITY"
     RUNTIME = "RUNTIME"
+    EPISTEMIC_MONOTONICITY = "EPISTEMIC_MONOTONICITY"
 
 
 VALID_INVARIANT_TYPES = frozenset({
@@ -59,6 +60,7 @@ VALID_INVARIANT_TYPES = frozenset({
     InvariantType.REALITY_CONFLICT,
     InvariantType.PIPELINE_INTEGRITY,
     InvariantType.RUNTIME,
+    InvariantType.EPISTEMIC_MONOTONICITY,
 })
 
 
@@ -459,6 +461,98 @@ INVARIANT_REGISTRY: list[dict[str, str]] = [
             "with pipeline_status, degraded_layers, and "
             "failed_layers. An export without runtime status "
             "is structurally incomplete."
+        ),
+    },
+    # ── Endgame Pass v2: Epistemic Monotonicity Invariants ──
+    {
+        "invariant_id": "EMI-001",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Confidence Monotonicity",
+        "description": (
+            "No downstream layer may produce a confidence value higher "
+            "than the minimum confidence established by upstream layers."
+        ),
+    },
+    {
+        "invariant_id": "EMI-002",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Publishability Monotonicity",
+        "description": (
+            "No downstream layer may upgrade publishability status. "
+            "Publishability can only degrade or remain unchanged."
+        ),
+    },
+    {
+        "invariant_id": "EMI-003",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Ranking Visibility Monotonicity",
+        "description": (
+            "If ranking_eligible was set to False by any upstream layer, "
+            "no downstream layer may set it back to True."
+        ),
+    },
+    {
+        "invariant_id": "EMI-004",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Comparability Monotonicity",
+        "description": (
+            "If cross-country comparability was disabled upstream, "
+            "no downstream layer may re-enable it."
+        ),
+    },
+    {
+        "invariant_id": "EMI-005",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "API Monotonicity",
+        "description": (
+            "API outputs must not be epistemically stronger than the "
+            "internal system state."
+        ),
+    },
+    {
+        "invariant_id": "EMI-006",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Caveat Non-Substitutability",
+        "description": (
+            "Required caveats established upstream must not be removed, "
+            "replaced with weaker caveats, or hidden by downstream formatting."
+        ),
+    },
+    {
+        "invariant_id": "EMI-007",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Missing Authority Non-Upgrading",
+        "description": (
+            "If a required authority source is missing, no downstream "
+            "layer may treat the result as if the authority were present."
+        ),
+    },
+    {
+        "invariant_id": "EMI-008",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Contradiction Non-Upgrading",
+        "description": (
+            "If contradictions were detected upstream, no downstream "
+            "layer may produce output implying they are resolved "
+            "without documented authority and reasoning."
+        ),
+    },
+    {
+        "invariant_id": "EMI-009",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Replay Determinism",
+        "description": (
+            "Audit replay of the same input must produce identical "
+            "epistemic state."
+        ),
+    },
+    {
+        "invariant_id": "EMI-010",
+        "type": InvariantType.EPISTEMIC_MONOTONICITY,
+        "name": "Diff Epistemic Sensitivity",
+        "description": (
+            "Snapshot diffs must detect and report ALL epistemic state "
+            "changes between versions."
         ),
     },
 ]

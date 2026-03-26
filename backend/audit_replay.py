@@ -263,3 +263,194 @@ def replay_country_audit(
             f"{'UNAUDITABLE — critical decisions not traceable.' if audit_status == AuditStatus.UNAUDITABLE else ''}"
         ),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COUNTERFACTUAL REPLAY
+# ═══════════════════════════════════════════════════════════════════════════
+
+def build_counterfactual_replay(
+    country: str,
+    country_json: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a counterfactual replay for a country.
+
+    This answers: "What is the MINIMUM change needed to enable
+    ranking, comparison, higher confidence, or policy claims?"
+
+    For each currently-blocked capability, the replay identifies
+    the binding constraint and the minimal change that would remove it.
+
+    Args:
+        country: ISO-2 country code.
+        country_json: The full materialized country JSON.
+
+    Returns:
+        Counterfactual analysis with binding constraints and
+        minimal changes needed for each capability.
+    """
+    if country_json is None:
+        return {
+            "country": country,
+            "counterfactual_status": "UNANALYZABLE",
+            "reason": "No materialized country JSON available.",
+            "binding_constraints": [],
+            "counterfactuals": [],
+            "n_counterfactuals": 0,
+            "honesty_note": (
+                f"Counterfactual replay for {country}: "
+                f"UNANALYZABLE — no data available."
+            ),
+        }
+
+    binding_constraints: list[dict[str, Any]] = []
+    counterfactuals: list[dict[str, Any]] = []
+
+    # ── Analyze ranking eligibility ──
+    governance = country_json.get("governance", {})
+    ranking_eligible = governance.get("ranking_eligible", True)
+    gov_tier = governance.get("governance_tier", "FULLY_COMPARABLE")
+
+    if not ranking_eligible:
+        constraint = {
+            "capability": "ranking",
+            "blocked_by": "governance",
+            "current_value": ranking_eligible,
+            "blocking_reason": f"Governance tier {gov_tier} prevents ranking.",
+        }
+        binding_constraints.append(constraint)
+
+        # What would need to change?
+        if gov_tier == "NON_COMPARABLE":
+            counterfactuals.append({
+                "capability": "ranking",
+                "minimal_change": (
+                    "Reduce governance severity or resolve producer "
+                    "inversions to move tier from NON_COMPARABLE to at "
+                    "least PARTIALLY_COMPARABLE."
+                ),
+                "difficulty": "HIGH",
+                "requires": ["governance_tier_upgrade"],
+            })
+        elif gov_tier == "LOW_CONFIDENCE":
+            counterfactuals.append({
+                "capability": "ranking",
+                "minimal_change": (
+                    "Improve axis confidence scores to move tier from "
+                    "LOW_CONFIDENCE to PARTIALLY_COMPARABLE."
+                ),
+                "difficulty": "MODERATE",
+                "requires": ["confidence_improvement"],
+            })
+
+    # ── Analyze comparability ──
+    truth = country_json.get("truth_resolution", {})
+    comparable = truth.get("final_cross_country_comparable", True)
+
+    if not comparable:
+        constraint = {
+            "capability": "comparison",
+            "blocked_by": "truth_resolution",
+            "current_value": comparable,
+            "blocking_reason": "Truth resolution disabled cross-country comparison.",
+        }
+        binding_constraints.append(constraint)
+
+        n_conflicts = truth.get("n_conflicts", 0)
+        counterfactuals.append({
+            "capability": "comparison",
+            "minimal_change": (
+                f"Resolve {n_conflicts} truth conflict(s) that prevent "
+                f"cross-country comparison."
+            ),
+            "difficulty": "HIGH" if n_conflicts > 2 else "MODERATE",
+            "requires": ["conflict_resolution"],
+        })
+
+    # ── Analyze confidence ──
+    confidence = country_json.get("confidence", 1.0)
+    if isinstance(confidence, (int, float)) and confidence < 0.5:
+        constraint = {
+            "capability": "high_confidence",
+            "blocked_by": "data_quality",
+            "current_value": confidence,
+            "blocking_reason": f"Confidence {confidence} below 0.5 threshold.",
+        }
+        binding_constraints.append(constraint)
+
+        counterfactuals.append({
+            "capability": "high_confidence",
+            "minimal_change": (
+                f"Improve data quality to raise confidence from "
+                f"{confidence} to at least 0.5."
+            ),
+            "difficulty": "MODERATE",
+            "requires": ["data_quality_improvement"],
+        })
+
+    # ── Analyze publishability ──
+    pub = country_json.get("publishability", {})
+    pub_status = pub.get("publishability_status", "PUBLISHABLE")
+    if pub_status in ("NOT_PUBLISHABLE", "RESTRICTED"):
+        blockers = pub.get("blockers", [])
+        constraint = {
+            "capability": "publication",
+            "blocked_by": "publishability",
+            "current_value": pub_status,
+            "blocking_reason": f"Publishability: {pub_status}. Blockers: {blockers}",
+        }
+        binding_constraints.append(constraint)
+
+        counterfactuals.append({
+            "capability": "publication",
+            "minimal_change": (
+                f"Address {len(blockers)} blocker(s): {blockers}. "
+                f"Each blocker must be individually resolved."
+            ),
+            "difficulty": "HIGH",
+            "requires": ["blocker_resolution"],
+        })
+
+    # ── Analyze policy claims ──
+    truth_status = truth.get("truth_status", "VALID")
+    if truth_status != "VALID":
+        constraint = {
+            "capability": "policy_claim",
+            "blocked_by": "truth_status",
+            "current_value": truth_status,
+            "blocking_reason": (
+                f"Truth status {truth_status} prevents policy claims. "
+                f"Only VALID truth status permits policy claims."
+            ),
+        }
+        binding_constraints.append(constraint)
+
+        counterfactuals.append({
+            "capability": "policy_claim",
+            "minimal_change": (
+                f"Resolve all truth conflicts to achieve VALID truth status "
+                f"(currently {truth_status})."
+            ),
+            "difficulty": "HIGH",
+            "requires": ["truth_status_upgrade"],
+        })
+
+    return {
+        "country": country,
+        "counterfactual_status": "COMPLETE",
+        "n_binding_constraints": len(binding_constraints),
+        "n_counterfactuals": len(counterfactuals),
+        "binding_constraints": binding_constraints,
+        "counterfactuals": counterfactuals,
+        "currently_blocked_capabilities": [
+            c["capability"] for c in binding_constraints
+        ],
+        "honesty_note": (
+            f"Counterfactual replay for {country}: {len(binding_constraints)} "
+            f"binding constraint(s), {len(counterfactuals)} counterfactual(s). "
+            f"Blocked capabilities: "
+            f"{[c['capability'] for c in binding_constraints] or 'none'}. "
+            f"This analysis shows the MINIMUM changes needed to enable "
+            f"each blocked capability."
+        ),
+    }

@@ -400,8 +400,8 @@ class TestInvariantExpansion:
 
     def test_invariant_registry_count(self):
         from backend.invariants import INVARIANT_REGISTRY
-        # 28 + 5 pipeline integrity invariants from Final Closure Pass
-        assert len(INVARIANT_REGISTRY) == 37
+        # 28 + 5 pipeline integrity + 4 runtime + 10 epistemic monotonicity
+        assert len(INVARIANT_REGISTRY) == 47
 
     def test_fv001_fires_when_block_empty(self):
         """FV-001: visibility block present but empty → no violation.

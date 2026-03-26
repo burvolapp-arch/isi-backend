@@ -868,8 +868,9 @@ class TestExternalValidityInvariants:
         # Was 13, then 17 (4 external validity), then 21 (4 construct enforcement),
         # then 25 (2 failure visibility + 2 authority consistency),
         # then 28 (3 reality conflict), 33 (5 pipeline integrity from Final Closure Pass),
-        # now 37 (4 runtime invariants from Production Hardening Pass)
-        assert len(INVARIANT_REGISTRY) == 37
+        # then 37 (4 runtime invariants from Production Hardening Pass),
+        # now 47 (10 epistemic monotonicity invariants from Endgame Pass v2)
+        assert len(INVARIANT_REGISTRY) == 47
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -457,8 +457,8 @@ class TestRealityConflictInvariants:
 
     def test_invariant_registry_count(self):
         from backend.invariants import INVARIANT_REGISTRY
-        # 28 + 5 pipeline integrity invariants from Final Closure Pass
-        assert len(INVARIANT_REGISTRY) == 37
+        # 28 + 5 pipeline integrity + 4 runtime + 10 epistemic monotonicity
+        assert len(INVARIANT_REGISTRY) == 47
 
     def test_rc001_fires_when_no_reality_block(self):
         """RC-001: High governance + DIVERGENT + no reality_conflicts block → CRITICAL."""

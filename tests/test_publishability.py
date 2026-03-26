@@ -17,10 +17,10 @@ class TestPublishabilityStatus(unittest.TestCase):
     """Publishability statuses must be formally defined."""
 
     def test_three_statuses(self):
-        self.assertEqual(len(VALID_PUBLISHABILITY_STATUSES), 3)
+        self.assertEqual(len(VALID_PUBLISHABILITY_STATUSES), 4)
 
     def test_expected_statuses(self):
-        expected = {"PUBLISHABLE", "PUBLISHABLE_WITH_CAVEATS", "NOT_PUBLISHABLE"}
+        expected = {"PUBLISHABLE", "PUBLISHABLE_WITH_CAVEATS", "RESTRICTED", "NOT_PUBLISHABLE"}
         self.assertEqual(VALID_PUBLISHABILITY_STATUSES, expected)
 
 
