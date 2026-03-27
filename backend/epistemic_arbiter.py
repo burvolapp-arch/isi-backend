@@ -121,6 +121,7 @@ def adjudicate(
     invariant_violations: list[dict[str, Any]] | None = None,
     authority_conflicts: dict[str, Any] | None = None,
     axis_weights: dict[int, float] | None = None,
+    pre_arbiter_narrowing: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Produce the final epistemic verdict for a country.
 
@@ -140,6 +141,8 @@ def adjudicate(
         reality_conflicts: Reality conflict detection result.
         scope_result: Output of determine_permitted_scope().
         publishability_result: Output of assess_publishability().
+        pre_arbiter_narrowing: Narrowing disclosures from TRANSFORM modules
+            that ran before the arbiter. Included in verdict for transparency.
 
     Returns:
         The final epistemic verdict with status, caps, and reasoning.
@@ -476,26 +479,54 @@ def adjudicate(
     required_warnings = list(dict.fromkeys(required_warnings))
     binding_constraints = sorted(set(binding_constraints))
 
-    # ── Dominant Constraint Extraction ──
+    # ── Dominant Constraint Extraction (multi-factor) ──
     # Identify the single binding constraint that drove the final status.
-    # The dominant constraint is the reason with the most restrictive
-    # individual decision. On ties, the first in evaluation order wins
+    # Uses multi-factor scoring to find the causally decisive reason,
+    # not merely the most severe one:
+    #   Factor 1 (weight 3): severity — ARBITER_STATUS_ORDER level
+    #   Factor 2 (weight 2): output binding breadth — how many claim
+    #       categories this reason's source directly forbids
+    #   Factor 3 (weight 1): primary path bonus — truth_resolution,
+    #       governance, and runtime_status are the primary epistemic
+    #       decision path; they get a tiebreaker bonus
+    # On ties after scoring, earliest in evaluation order wins
     # (evaluation order = contract order, not arbitrary).
+
+    # Map source → number of forbidden claims that source directly adds.
+    # This captures output-binding breadth: a source that forbids 5 claims
+    # is more causally decisive than one that forbids 0.
+    _SOURCE_CLAIMS_FORBIDDEN: dict[str, int] = {}
+    for fc_source, fc_count in [
+        ("runtime_status", 5),      # BLOCKED → all 5 claims
+        ("truth_resolution", 5),    # BLOCKED → ranking, comparison, policy_claim, composite, country_ordering
+        ("override_pressure", 2),   # ranking, comparison
+        ("governance", 3),          # ranking, comparison, country_ordering
+        ("invariant_report", 3),    # ranking, comparison, policy_claim
+        ("publishability", 1),      # publication
+    ]:
+        _SOURCE_CLAIMS_FORBIDDEN[fc_source] = fc_count
+
+    _PRIMARY_PATH_SOURCES = {"truth_resolution", "governance", "runtime_status"}
+
     dominant_constraint: str | None = None
     dominant_constraint_source: str | None = None
     if reasons:
-        most_restrictive_idx = 0
-        most_restrictive_level = ARBITER_STATUS_ORDER.get(
-            reasons[0].get("decision", "VALID"), 0
+        best_idx = 0
+        best_score = (
+            ARBITER_STATUS_ORDER.get(reasons[0].get("decision", "VALID"), 0) * 3
+            + _SOURCE_CLAIMS_FORBIDDEN.get(reasons[0].get("source", ""), 0) * 2
+            + (1 if reasons[0].get("source", "") in _PRIMARY_PATH_SOURCES else 0)
         )
         for i, reason in enumerate(reasons[1:], start=1):
-            level = ARBITER_STATUS_ORDER.get(
-                reason.get("decision", "VALID"), 0
+            score = (
+                ARBITER_STATUS_ORDER.get(reason.get("decision", "VALID"), 0) * 3
+                + _SOURCE_CLAIMS_FORBIDDEN.get(reason.get("source", ""), 0) * 2
+                + (1 if reason.get("source", "") in _PRIMARY_PATH_SOURCES else 0)
             )
-            if level > most_restrictive_level:
-                most_restrictive_level = level
-                most_restrictive_idx = i
-        dominant_reason = reasons[most_restrictive_idx]
+            if score > best_score:
+                best_score = score
+                best_idx = i
+        dominant_reason = reasons[best_idx]
         dominant_constraint = dominant_reason.get("detail", "unknown")
         dominant_constraint_source = dominant_reason.get("source", "unknown")
 
@@ -539,6 +570,7 @@ def adjudicate(
         "binding_constraints": binding_constraints,
         "dominant_constraint": dominant_constraint,
         "dominant_constraint_source": dominant_constraint_source,
+        "pre_arbiter_narrowing": pre_arbiter_narrowing or [],
         "arbiter_reasoning": reasons,
         "fault_scope": fault_scope_to_dict(fault_scope),
         "scoped_publishability": scoped_pub,

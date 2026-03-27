@@ -45,7 +45,7 @@ from typing import Any
 MAX_BACKEND_MODULES: int = 60
 
 # Test budget: max number of test files
-MAX_TEST_FILES: int = 60
+MAX_TEST_FILES: int = 62
 
 # Invariant budget: max number of registered invariants
 MAX_INVARIANTS: int = 60

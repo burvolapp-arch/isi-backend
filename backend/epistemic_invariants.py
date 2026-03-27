@@ -763,6 +763,81 @@ def check_arbiter_dominance(
     }
 
 
+def check_pre_arbiter_disclosure(
+    country_verdicts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Check ARB-004: pre-arbiter narrowing disclosure invariant.
+
+    Verifies that TRANSFORM modules which narrowed the epistemic
+    possibility space before the arbiter have their narrowing
+    explicitly disclosed in the arbiter verdict. A verdict with
+    non-trivial upstream narrowing but an empty pre_arbiter_narrowing
+    list indicates hidden authority leakage.
+
+    Detection logic:
+        For each verdict, check whether the arbiter's own reasoning
+        references sources that correspond to TRANSFORM narrowing
+        (governance tier != FULLY_COMPARABLE, trust != full, critical
+        reality conflicts) — if such constraints bind the verdict
+        but pre_arbiter_narrowing is absent or empty, that's a
+        violation.
+
+    Args:
+        country_verdicts: {country: arbiter_verdict} from country JSONs.
+
+    Returns:
+        Violation report with pass/fail.
+    """
+    violations: list[dict[str, Any]] = []
+    ids_checked = ["ARB-004"]
+
+    # Sources whose binding presence implies pre-arbiter narrowing occurred
+    narrowing_indicators = {
+        "governance", "failure_visibility", "reality_conflicts",
+    }
+
+    for country, verdict in country_verdicts.items():
+        narrowing = verdict.get("pre_arbiter_narrowing", [])
+        binding = set(verdict.get("binding_constraints", []))
+        reasons = verdict.get("arbiter_reasoning", [])
+
+        # Check: did any narrowing-indicator source produce a
+        # SUPPRESSED or BLOCKED reason?
+        has_hard_narrowing = False
+        narrowing_sources: list[str] = []
+        for reason in reasons:
+            source = reason.get("source", "")
+            decision = reason.get("decision", "VALID")
+            if source in narrowing_indicators and decision in (
+                "SUPPRESSED", "BLOCKED",
+            ):
+                has_hard_narrowing = True
+                narrowing_sources.append(source)
+
+        if has_hard_narrowing and not narrowing:
+            violations.append(_emi_violation(
+                "ARB-004",
+                f"Arbiter verdict for {country} has hard narrowing from "
+                f"{narrowing_sources} but pre_arbiter_narrowing is empty. "
+                f"Hidden authority leakage: TRANSFORM modules narrowed "
+                f"the epistemic input space without disclosure.",
+                {
+                    "country": country,
+                    "narrowing_sources": narrowing_sources,
+                    "binding_constraints": sorted(binding),
+                    "pre_arbiter_narrowing": narrowing,
+                },
+            ))
+
+    return {
+        "passed": len(violations) == 0,
+        "n_checks": len(ids_checked),
+        "n_violations": len(violations),
+        "violations": violations,
+        "invariant_ids_checked": ids_checked,
+    }
+
+
 def enforce_epistemic_monotonicity(
     state_before: dict[str, Any],
     state_after: dict[str, Any],

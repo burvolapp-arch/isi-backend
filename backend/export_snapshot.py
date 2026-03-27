@@ -635,6 +635,21 @@ def build_country_json(
     # ── Publishability Assessment ──
     publishability_result = _compute_publishability(country, truth_result)
 
+    # ── Pre-Arbiter Narrowing Disclosure ──
+    # TRANSFORM modules that ran before the arbiter may have narrowed
+    # the epistemic possibility space (e.g., governance downgraded tier,
+    # failure_visibility computed NO_TRUST, reality_conflicts flagged
+    # CRITICAL contradictions). The arbiter must see this narrowing
+    # explicitly so it can never be silently bypassed.
+    pre_arbiter_narrowing = _compute_pre_arbiter_narrowing(
+        governance=governance,
+        failure_visibility=failure_visibility,
+        reality_conflicts=reality_conflicts,
+        construct_enforcement=construct_enforcement_result,
+        sensitivity_result=sensitivity_result,
+        decision_usability=decision_usability,
+    )
+
     # ── Epistemic Arbiter — SINGLE FINAL AUTHORITY ──
     # The arbiter takes ALL upstream results and produces a single,
     # binding epistemic verdict. ALL exports must respect this.
@@ -647,6 +662,7 @@ def build_country_json(
         invariant_result=invariant_result,
         reality_conflicts=reality_conflicts,
         publishability_result=publishability_result,
+        pre_arbiter_narrowing=pre_arbiter_narrowing,
     )
 
     # ── Version Locking (Section 5) ──
@@ -1113,6 +1129,119 @@ def _compute_publishability(
         }
 
 
+def _compute_pre_arbiter_narrowing(
+    *,
+    governance: dict[str, Any] | None = None,
+    failure_visibility: dict[str, Any] | None = None,
+    reality_conflicts: dict[str, Any] | None = None,
+    construct_enforcement: dict[str, Any] | None = None,
+    sensitivity_result: dict[str, Any] | None = None,
+    decision_usability: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    """Detect pre-arbiter narrowing from TRANSFORM modules.
+
+    TRANSFORM modules run before the arbiter and can silently narrow
+    the epistemic possibility space (e.g., governance downgrades tier,
+    failure_visibility computes NO_TRUST). This function makes ALL such
+    narrowing explicit so the arbiter can never be bypassed by hidden
+    upstream authority.
+
+    Returns a list of narrowing disclosures. An empty list means no
+    TRANSFORM module narrowed the input space — the arbiter receives
+    a full, unconstrained epistemic field.
+    """
+    narrowing: list[dict[str, str]] = []
+
+    # Governance tier narrowing
+    if governance is not None:
+        gov_tier = governance.get("governance_tier", "FULLY_COMPARABLE")
+        if gov_tier != "FULLY_COMPARABLE":
+            narrowing.append({
+                "module": "governance",
+                "narrowing_type": "tier_downgrade",
+                "detail": (
+                    f"Governance tier is {gov_tier} (not FULLY_COMPARABLE). "
+                    f"Arbiter input space narrowed: ranking/comparison may "
+                    f"be pre-constrained."
+                ),
+            })
+
+    # Failure visibility trust degradation
+    if failure_visibility is not None:
+        trust_level = failure_visibility.get(
+            "trust_level",
+            failure_visibility.get("overall_trust_level", "STRUCTURALLY_SOUND"),
+        )
+        non_narrowing = {"STRUCTURALLY_SOUND", "FULL_TRUST", "USE_WITH_DOCUMENTED_CAVEATS"}
+        if trust_level not in non_narrowing:
+            narrowing.append({
+                "module": "failure_visibility",
+                "narrowing_type": "trust_degradation",
+                "detail": (
+                    f"Trust level is {trust_level}. Arbiter input space "
+                    f"narrowed: suppression/blocking may be pre-determined."
+                ),
+            })
+
+    # Reality conflicts critical narrowing
+    if reality_conflicts is not None:
+        if reality_conflicts.get("has_critical", False):
+            n_conflicts = reality_conflicts.get("n_conflicts", 0)
+            narrowing.append({
+                "module": "reality_conflicts",
+                "narrowing_type": "critical_contradiction",
+                "detail": (
+                    f"Critical reality conflicts detected ({n_conflicts} total). "
+                    f"Arbiter input space narrowed: suppression pre-determined."
+                ),
+            })
+
+    # Construct enforcement failures
+    if construct_enforcement is not None:
+        n_failures = construct_enforcement.get("n_failures", 0)
+        if n_failures > 0:
+            narrowing.append({
+                "module": "construct_enforcement",
+                "narrowing_type": "structural_failure",
+                "detail": (
+                    f"{n_failures} construct enforcement failure(s). "
+                    f"Structural validity degraded before arbiter."
+                ),
+            })
+
+    # Alignment sensitivity instability
+    if sensitivity_result is not None:
+        is_unstable = sensitivity_result.get("is_unstable", False)
+        if is_unstable:
+            narrowing.append({
+                "module": "alignment_sensitivity",
+                "narrowing_type": "instability",
+                "detail": (
+                    "Alignment sensitivity detected instability. "
+                    "Arbiter input space narrowed: confidence may be "
+                    "pre-capped."
+                ),
+            })
+
+    # Decision usability downgrade
+    if decision_usability is not None:
+        usability_class = decision_usability.get(
+            "usability_class",
+            decision_usability.get("overall_usability", "FULLY_USABLE"),
+        )
+        if usability_class not in ("FULLY_USABLE", "USABLE"):
+            narrowing.append({
+                "module": "decision_usability",
+                "narrowing_type": "usability_downgrade",
+                "detail": (
+                    f"Decision usability is {usability_class}. "
+                    f"Arbiter input space narrowed."
+                ),
+            })
+
+    return narrowing
+
+
 def _compute_arbiter_verdict(
     *,
     country: str,
@@ -1123,6 +1252,7 @@ def _compute_arbiter_verdict(
     invariant_result: dict[str, Any] | None = None,
     reality_conflicts: dict[str, Any] | None = None,
     publishability_result: dict[str, Any] | None = None,
+    pre_arbiter_narrowing: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Compute the final epistemic arbiter verdict for a country.
 
@@ -1139,6 +1269,7 @@ def _compute_arbiter_verdict(
         invariant_result: Invariant assessment result.
         reality_conflicts: Reality conflict detection result.
         publishability_result: Publishability assessment result.
+        pre_arbiter_narrowing: Narrowing disclosures from TRANSFORM modules.
 
     Returns:
         Arbiter verdict dict with final epistemic status, bounds,
@@ -1154,6 +1285,7 @@ def _compute_arbiter_verdict(
             invariant_report=invariant_result,
             reality_conflicts=reality_conflicts,
             publishability_result=publishability_result,
+            pre_arbiter_narrowing=pre_arbiter_narrowing,
         )
     except Exception:
         return {
