@@ -34,19 +34,25 @@ from backend.epistemic_invariants import (
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestEMIRegistry:
-    """EMI invariant registry must contain all 10 invariants."""
+    """EMI invariant registry must contain all 13 invariants (EMI-001–010 + ARB-001–003)."""
 
-    def test_emi_registry_has_10_invariants(self):
-        assert len(EMI_INVARIANTS) == 10
+    def test_emi_registry_has_13_invariants(self):
+        assert len(EMI_INVARIANTS) == 13
 
     def test_emi_ids_are_sequential(self):
         ids = [inv["invariant_id"] for inv in EMI_INVARIANTS]
         for i in range(1, 11):
             assert f"EMI-{i:03d}" in ids
 
-    def test_all_emi_are_epistemic_monotonicity_type(self):
+    def test_arb_ids_present(self):
+        ids = [inv["invariant_id"] for inv in EMI_INVARIANTS]
+        for i in range(1, 4):
+            assert f"ARB-{i:03d}" in ids
+
+    def test_invariant_types_are_valid(self):
+        valid_types = {"EPISTEMIC_MONOTONICITY", "ARBITER_DOMINANCE"}
         for inv in EMI_INVARIANTS:
-            assert inv["type"] == "EPISTEMIC_MONOTONICITY"
+            assert inv["type"] in valid_types, f"{inv['invariant_id']} has invalid type {inv['type']}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

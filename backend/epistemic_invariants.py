@@ -145,6 +145,37 @@ EMI_INVARIANTS: list[dict[str, str]] = [
             "surface this — silent epistemic changes are violations."
         ),
     },
+    {
+        "invariant_id": "ARB-001",
+        "type": "ARBITER_DOMINANCE",
+        "name": "No Output Without Arbiter",
+        "description": (
+            "No output row may exist without an arbiter verdict. "
+            "The ranking list (isi.json) must include arbiter_status "
+            "for every country row. If arbiter_status is None, the "
+            "output was produced without arbiter enforcement."
+        ),
+    },
+    {
+        "invariant_id": "ARB-002",
+        "type": "ARBITER_DOMINANCE",
+        "name": "No Ranking When Arbiter Forbids",
+        "description": (
+            "If the arbiter's forbidden_claims include 'ranking', "
+            "no output may claim ranking_eligible=True. The ranking "
+            "list is not exempt from arbiter authority."
+        ),
+    },
+    {
+        "invariant_id": "ARB-003",
+        "type": "ARBITER_DOMINANCE",
+        "name": "Arbiter Terminality",
+        "description": (
+            "No output field may be epistemically stronger than the "
+            "arbiter's verdict allows. The arbiter is the terminal "
+            "constraint — all downstream values must be ≤ arbiter bounds."
+        ),
+    },
 ]
 
 
@@ -652,6 +683,86 @@ def check_diff_sensitivity(
     }
 
 
+def check_arbiter_dominance(
+    isi_rows: list[dict[str, Any]],
+    country_verdicts: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Check ARB-001 through ARB-003: arbiter dominance invariants.
+
+    Verifies that:
+    - ARB-001: Every ISI row has an arbiter_status (not None).
+    - ARB-002: No row has ranking_eligible=True when arbiter forbids ranking.
+    - ARB-003: No row is epistemically stronger than arbiter allows.
+
+    Args:
+        isi_rows: The countries[] array from isi.json.
+        country_verdicts: {country: arbiter_verdict} from country JSONs.
+            If None, only ARB-001 (presence check) is enforced.
+
+    Returns:
+        Violation report with pass/fail.
+    """
+    violations: list[dict[str, Any]] = []
+    ids_checked = ["ARB-001", "ARB-002", "ARB-003"]
+
+    verdicts = country_verdicts or {}
+
+    for row in isi_rows:
+        country = row.get("country", "UNKNOWN")
+
+        # ARB-001: arbiter_status must be present and non-None
+        arbiter_status = row.get("arbiter_status")
+        if arbiter_status is None:
+            violations.append(_emi_violation(
+                "ARB-001",
+                f"ISI row for {country} has no arbiter_status. "
+                f"Output produced without arbiter enforcement.",
+                {"country": country, "arbiter_status": arbiter_status},
+            ))
+
+        # ARB-002 & ARB-003 require country verdicts
+        verdict = verdicts.get(country)
+        if verdict is not None:
+            forbidden = set(verdict.get("final_forbidden_claims", []))
+
+            # ARB-002: ranking_eligible vs arbiter forbidden
+            if row.get("ranking_eligible", False) and "ranking" in forbidden:
+                violations.append(_emi_violation(
+                    "ARB-002",
+                    f"ISI row for {country} has ranking_eligible=True but "
+                    f"arbiter forbids 'ranking'.",
+                    {
+                        "country": country,
+                        "ranking_eligible": True,
+                        "arbiter_forbidden": sorted(forbidden),
+                    },
+                ))
+
+            # ARB-003: comparability vs arbiter forbidden
+            if (
+                row.get("cross_country_comparable", False)
+                and ("comparison" in forbidden or "country_ordering" in forbidden)
+            ):
+                violations.append(_emi_violation(
+                    "ARB-003",
+                    f"ISI row for {country} claims cross_country_comparable=True but "
+                    f"arbiter forbids comparison/ordering.",
+                    {
+                        "country": country,
+                        "cross_country_comparable": True,
+                        "arbiter_forbidden": sorted(forbidden),
+                    },
+                ))
+
+    return {
+        "passed": len(violations) == 0,
+        "n_checks": len(ids_checked),
+        "n_violations": len(violations),
+        "violations": violations,
+        "invariant_ids_checked": ids_checked,
+    }
+
+
 def enforce_epistemic_monotonicity(
     state_before: dict[str, Any],
     state_after: dict[str, Any],
@@ -746,6 +857,7 @@ def build_epistemic_invariant_report(
     api_result: dict[str, Any] | None = None,
     replay_result: dict[str, Any] | None = None,
     diff_result: dict[str, Any] | None = None,
+    arbiter_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a consolidated report of all EMI invariant checks.
 
@@ -754,6 +866,7 @@ def build_epistemic_invariant_report(
         api_result: Output of check_api_monotonicity().
         replay_result: Output of check_replay_determinism().
         diff_result: Output of check_diff_sensitivity().
+        arbiter_result: Output of check_arbiter_dominance().
 
     Returns:
         Consolidated report with overall pass/fail.
@@ -767,6 +880,7 @@ def build_epistemic_invariant_report(
         ("api", api_result),
         ("replay", replay_result),
         ("diff", diff_result),
+        ("arbiter", arbiter_result),
     ]
 
     for name, result in components:

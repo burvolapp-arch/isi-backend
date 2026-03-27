@@ -278,6 +278,7 @@ def build_isi_json(
     methodology_version: str,
     year: int,
     data_window: str,
+    country_arbiter_verdicts: dict[str, dict[str, Any]] | None = None,
 ) -> dict:
     """Build isi.json: composite scores for all 27 countries.
 
@@ -346,9 +347,37 @@ def build_isi_json(
         row["classification"] = classify(composite, methodology_version) if composite is not None else None
         row["complete"] = complete
         # ── Governance fields propagated into ranking list ──
-        row["governance_tier"] = gov["governance_tier"]
-        row["ranking_eligible"] = gov["ranking_eligible"]
-        row["cross_country_comparable"] = gov["cross_country_comparable"]
+        # If arbiter verdicts are available, use arbiter-constrained values.
+        # The arbiter is the SINGLE FINAL AUTHORITY — raw governance
+        # may be more permissive than what the arbiter allows.
+        arbiter = (country_arbiter_verdicts or {}).get(country)
+        if arbiter is not None:
+            arbiter_forbidden = set(arbiter.get("final_forbidden_claims", []))
+            arbiter_status = arbiter.get("final_epistemic_status", "VALID")
+            # Arbiter overrides: if arbiter forbids ranking, country is not ranking-eligible
+            arbiter_ranking_eligible = (
+                gov["ranking_eligible"]
+                and "ranking" not in arbiter_forbidden
+                and arbiter_status not in ("BLOCKED", "SUPPRESSED")
+            )
+            arbiter_comparable = (
+                gov["cross_country_comparable"]
+                and "comparison" not in arbiter_forbidden
+                and "country_ordering" not in arbiter_forbidden
+            )
+            row["governance_tier"] = gov["governance_tier"]
+            row["ranking_eligible"] = arbiter_ranking_eligible
+            row["cross_country_comparable"] = arbiter_comparable
+            row["arbiter_status"] = arbiter_status
+            row["dominant_constraint"] = arbiter.get("dominant_constraint")
+            row["dominant_constraint_source"] = arbiter.get("dominant_constraint_source")
+        else:
+            # Fallback: raw governance (backward-compatible for tests
+            # that call build_isi_json without arbiter verdicts)
+            row["governance_tier"] = gov["governance_tier"]
+            row["ranking_eligible"] = gov["ranking_eligible"]
+            row["cross_country_comparable"] = gov["cross_country_comparable"]
+            row["arbiter_status"] = None
         # ── Layer 3: decision usability class for ISI ranking context ──
         try:
             usability = classify_decision_usability(
@@ -1423,16 +1452,26 @@ def materialize_snapshot(
         # ── WRITE SNAPSHOT FILES ──
         print("Phase 3: Writing snapshot files...")
 
-        # isi.json
-        isi_data = build_isi_json(all_scores, methodology_version, year, data_window)
-        write_canonical_json(temp_dir / "isi.json", isi_data)
-        print(f"  isi.json ({isi_data['countries_complete']} countries)")
-
-        # country/{CODE}.json
+        # country/{CODE}.json — MUST be built FIRST so arbiter verdicts
+        # are available for the ranking list. The arbiter is the single
+        # final authority; building isi.json before countries would
+        # bypass the arbiter and produce ranking rows with raw governance.
+        country_arbiter_verdicts: dict[str, dict[str, Any]] = {}
         for country in EU27_SORTED:
             detail = build_country_json(country, all_scores, methodology_version, year, data_window)
             write_canonical_json(temp_dir / "country" / f"{country}.json", detail)
+            # Extract arbiter verdict for ISI ranking row injection
+            if "arbiter_verdict" in detail:
+                country_arbiter_verdicts[country] = detail["arbiter_verdict"]
         print(f"  country/*.json ({len(EU27_SORTED)} files)")
+
+        # isi.json — now with arbiter-constrained governance values
+        isi_data = build_isi_json(
+            all_scores, methodology_version, year, data_window,
+            country_arbiter_verdicts=country_arbiter_verdicts,
+        )
+        write_canonical_json(temp_dir / "isi.json", isi_data)
+        print(f"  isi.json ({isi_data['countries_complete']} countries)")
 
         # axis/{n}.json
         for axis_num in range(1, NUM_AXES + 1):

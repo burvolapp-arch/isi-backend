@@ -476,6 +476,29 @@ def adjudicate(
     required_warnings = list(dict.fromkeys(required_warnings))
     binding_constraints = sorted(set(binding_constraints))
 
+    # ── Dominant Constraint Extraction ──
+    # Identify the single binding constraint that drove the final status.
+    # The dominant constraint is the reason with the most restrictive
+    # individual decision. On ties, the first in evaluation order wins
+    # (evaluation order = contract order, not arbitrary).
+    dominant_constraint: str | None = None
+    dominant_constraint_source: str | None = None
+    if reasons:
+        most_restrictive_idx = 0
+        most_restrictive_level = ARBITER_STATUS_ORDER.get(
+            reasons[0].get("decision", "VALID"), 0
+        )
+        for i, reason in enumerate(reasons[1:], start=1):
+            level = ARBITER_STATUS_ORDER.get(
+                reason.get("decision", "VALID"), 0
+            )
+            if level > most_restrictive_level:
+                most_restrictive_level = level
+                most_restrictive_idx = i
+        dominant_reason = reasons[most_restrictive_idx]
+        dominant_constraint = dominant_reason.get("detail", "unknown")
+        dominant_constraint_source = dominant_reason.get("source", "unknown")
+
     # ── Map arbiter status to publishability ──
     publishability_map = {
         ArbiterStatus.VALID: "PUBLISHABLE",
@@ -514,6 +537,8 @@ def adjudicate(
         "final_required_warnings": required_warnings,
         "final_bounds": bounds_to_dict(bounds),
         "binding_constraints": binding_constraints,
+        "dominant_constraint": dominant_constraint,
+        "dominant_constraint_source": dominant_constraint_source,
         "arbiter_reasoning": reasons,
         "fault_scope": fault_scope_to_dict(fault_scope),
         "scoped_publishability": scoped_pub,
