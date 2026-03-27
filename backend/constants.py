@@ -168,11 +168,13 @@ MODULE_TYPES: dict[str, str] = {
     # INPUT — static data and loaders
     "constants": "INPUT",
     "calibration": "INPUT",
+    "calibration_config": "INPUT",
     "external_validation": "INPUT",
     "epistemic_dependencies": "INPUT",
     "methodology": "INPUT",
     "hashing": "INPUT",
     "benchmark_mapping_audit": "INPUT",
+    "causal_graph": "INPUT",
     # META — observation, no epistemic binding
     "audit_replay": "META",
     "complexity_budget": "META",

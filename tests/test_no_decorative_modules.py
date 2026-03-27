@@ -74,6 +74,9 @@ INFRASTRUCTURE_MODULES = frozenset({
     # ── True Final Pass v3: fault isolation infrastructure ──
     "epistemic_dependencies",       # Dependency graph (used by fault isolation)
     "epistemic_fault_isolation",    # Fault isolation engine (used by arbiter)
+    # ── Extension Pass: calibration/causal infrastructure ──
+    "calibration_config",           # Calibration data artifact (used by arbiter)
+    "causal_graph",                 # Causal DAG (used by arbiter)
 })
 
 # Core computation modules that MUST be imported by export_snapshot.py

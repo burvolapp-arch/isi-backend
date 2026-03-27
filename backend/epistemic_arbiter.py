@@ -35,6 +35,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.calibration_config import (
+    DOMINANCE_FEATURES,
+    get_active_calibration,
+)
+from backend.causal_graph import (
+    trace_causal_path,
+    validate_dominant_on_causal_path,
+    get_reachable_outcomes,
+)
 from backend.epistemic_bounds import (
     EpistemicBounds,
     bounds_from_truth_result,
@@ -122,6 +131,7 @@ def adjudicate(
     authority_conflicts: dict[str, Any] | None = None,
     axis_weights: dict[int, float] | None = None,
     pre_arbiter_narrowing: list[dict[str, str]] | None = None,
+    external_authority_signals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Produce the final epistemic verdict for a country.
 
@@ -143,6 +153,9 @@ def adjudicate(
         publishability_result: Output of assess_publishability().
         pre_arbiter_narrowing: Narrowing disclosures from TRANSFORM modules
             that ran before the arbiter. Included in verdict for transparency.
+        external_authority_signals: Structured signals from external
+            authorities (BIS, IMF, etc.). These are INPUT SIGNALS —
+            the arbiter weighs them but is never overridden by them.
 
     Returns:
         The final epistemic verdict with status, caps, and reasoning.
@@ -479,56 +492,157 @@ def adjudicate(
     required_warnings = list(dict.fromkeys(required_warnings))
     binding_constraints = sorted(set(binding_constraints))
 
-    # ── Dominant Constraint Extraction (multi-factor) ──
-    # Identify the single binding constraint that drove the final status.
-    # Uses multi-factor scoring to find the causally decisive reason,
-    # not merely the most severe one:
-    #   Factor 1 (weight 3): severity — ARBITER_STATUS_ORDER level
-    #   Factor 2 (weight 2): output binding breadth — how many claim
-    #       categories this reason's source directly forbids
-    #   Factor 3 (weight 1): primary path bonus — truth_resolution,
-    #       governance, and runtime_status are the primary epistemic
-    #       decision path; they get a tiebreaker bonus
-    # On ties after scoring, earliest in evaluation order wins
-    # (evaluation order = contract order, not arbitrary).
+    # ── External Authority Signals (Extension C) ──
+    # External authority signals are INPUT SIGNALS to the arbiter.
+    # They influence the verdict but NEVER override it.
+    external_authority_report: list[dict[str, Any]] = []
+    ext_signals = external_authority_signals or []
+    for signal in ext_signals:
+        signal_source = signal.get("source_id", "unknown")
+        signal_claim = signal.get("claim_type", "unknown")
+        signal_confidence = signal.get("confidence", 0.0)
+        signal_decision = signal.get("decision", "VALID")
+        signal_scope = signal.get("scope", "unknown")
+
+        # Check for conflict with internal reasoning
+        internal_conflict = False
+        conflict_detail = ""
+        for reason in reasons:
+            if (
+                reason.get("source", "") in (signal_scope, signal_claim)
+                and reason.get("decision", "VALID") != signal_decision
+            ):
+                internal_conflict = True
+                conflict_detail = (
+                    f"External {signal_source} says {signal_decision} "
+                    f"but internal {reason['source']} says "
+                    f"{reason.get('decision', 'VALID')}."
+                )
+                break
+
+        # External signal INFLUENCES status if it is MORE restrictive,
+        # but always through the arbiter's own mechanism
+        signal_status_level = ARBITER_STATUS_ORDER.get(signal_decision, 0)
+        current_status_level = ARBITER_STATUS_ORDER.get(status, 0)
+
+        accepted = False
+        if signal_status_level > current_status_level:
+            # External signal is more restrictive — adopt it
+            status = _more_restrictive_status(status, signal_decision)
+            reasons.append({
+                "source": f"external_authority:{signal_source}",
+                "decision": signal_decision,
+                "detail": (
+                    f"External authority {signal_source} reports "
+                    f"{signal_decision} for {signal_claim} "
+                    f"(confidence={signal_confidence:.2f})."
+                ),
+            })
+            accepted = True
+        elif internal_conflict:
+            # External is less restrictive but conflicts — surface it
+            required_warnings.append(
+                f"External authority conflict: {conflict_detail}"
+            )
+
+        external_authority_report.append({
+            "source_id": signal_source,
+            "claim_type": signal_claim,
+            "confidence": signal_confidence,
+            "decision": signal_decision,
+            "accepted": accepted,
+            "internal_conflict": internal_conflict,
+            "conflict_detail": conflict_detail,
+            "reason": (
+                "Accepted: more restrictive than internal assessment."
+                if accepted else
+                (f"Rejected: internal assessment is already "
+                 f"{status} (≥ {signal_decision})."
+                 + (" Conflict surfaced as warning." if internal_conflict else ""))
+            ),
+        })
+
+    # ── Dominant Constraint Extraction (calibrated + causal) ──
+    # Uses calibrated weights from CalibrationConfig and validates
+    # that the dominant constraint lies on a causal path to the
+    # final outcome.
+    calibration = get_active_calibration()
 
     # Map source → number of forbidden claims that source directly adds.
-    # This captures output-binding breadth: a source that forbids 5 claims
-    # is more causally decisive than one that forbids 0.
     _SOURCE_CLAIMS_FORBIDDEN: dict[str, int] = {}
     for fc_source, fc_count in [
-        ("runtime_status", 5),      # BLOCKED → all 5 claims
-        ("truth_resolution", 5),    # BLOCKED → ranking, comparison, policy_claim, composite, country_ordering
-        ("override_pressure", 2),   # ranking, comparison
-        ("governance", 3),          # ranking, comparison, country_ordering
-        ("invariant_report", 3),    # ranking, comparison, policy_claim
-        ("publishability", 1),      # publication
+        ("runtime_status", 5),
+        ("truth_resolution", 5),
+        ("override_pressure", 2),
+        ("governance", 3),
+        ("invariant_report", 3),
+        ("publishability", 1),
     ]:
         _SOURCE_CLAIMS_FORBIDDEN[fc_source] = fc_count
 
     _PRIMARY_PATH_SOURCES = {"truth_resolution", "governance", "runtime_status"}
 
+    # Compute source recurrence (how many reasons each source has)
+    source_recurrence: dict[str, int] = {}
+    for reason in reasons:
+        src = reason.get("source", "")
+        source_recurrence[src] = source_recurrence.get(src, 0) + 1
+
+    # Relevant outcomes for causal path validation
+    relevant_outcomes = {"final_status"} | set(forbidden_claims)
+
+    def _dominance_score(reason: dict[str, str]) -> float:
+        """Compute calibrated dominance score for a reason."""
+        src = reason.get("source", "")
+        # Strip external_authority: prefix for causal lookup
+        causal_src = src.split(":")[-1] if src.startswith("external_authority:") else src
+        severity = ARBITER_STATUS_ORDER.get(
+            reason.get("decision", "VALID"), 0
+        )
+        claims = _SOURCE_CLAIMS_FORBIDDEN.get(causal_src, 0)
+        primary = 1.0 if causal_src in _PRIMARY_PATH_SOURCES else 0.0
+        recurrence = float(source_recurrence.get(src, 1))
+
+        return (
+            calibration.weight("severity") * severity
+            + calibration.weight("claims_forbidden") * claims
+            + calibration.weight("primary_path") * primary
+            + calibration.weight("recurrence") * recurrence
+        )
+
     dominant_constraint: str | None = None
     dominant_constraint_source: str | None = None
     if reasons:
-        best_idx = 0
-        best_score = (
-            ARBITER_STATUS_ORDER.get(reasons[0].get("decision", "VALID"), 0) * 3
-            + _SOURCE_CLAIMS_FORBIDDEN.get(reasons[0].get("source", ""), 0) * 2
-            + (1 if reasons[0].get("source", "") in _PRIMARY_PATH_SOURCES else 0)
-        )
-        for i, reason in enumerate(reasons[1:], start=1):
-            score = (
-                ARBITER_STATUS_ORDER.get(reason.get("decision", "VALID"), 0) * 3
-                + _SOURCE_CLAIMS_FORBIDDEN.get(reason.get("source", ""), 0) * 2
-                + (1 if reason.get("source", "") in _PRIMARY_PATH_SOURCES else 0)
-            )
+        # Score all reasons and filter by causal path
+        scored: list[tuple[int, float, dict[str, str]]] = []
+        for i, reason in enumerate(reasons):
+            src = reason.get("source", "")
+            causal_src = src.split(":")[-1] if src.startswith("external_authority:") else src
+            reachable = get_reachable_outcomes(causal_src)
+            on_path = len(reachable & relevant_outcomes) > 0
+
+            score = _dominance_score(reason)
+            # Reasons NOT on causal path get their score halved —
+            # they can still be dominant if nothing else qualifies,
+            # but causally-connected reasons are strongly preferred.
+            if not on_path:
+                score *= 0.5
+            scored.append((i, score, reason))
+
+        # Pick the highest score; ties broken by earliest index
+        best_idx, best_score, best_reason = scored[0]
+        for idx, score, reason in scored[1:]:
             if score > best_score:
-                best_score = score
-                best_idx = i
-        dominant_reason = reasons[best_idx]
-        dominant_constraint = dominant_reason.get("detail", "unknown")
-        dominant_constraint_source = dominant_reason.get("source", "unknown")
+                best_idx, best_score, best_reason = idx, score, reason
+
+        dominant_constraint = best_reason.get("detail", "unknown")
+        dominant_constraint_source = best_reason.get("source", "unknown")
+
+    # Causal path trace for audit
+    causal_path = trace_causal_path(reasons, status, forbidden_claims)
+    causal_validation = validate_dominant_on_causal_path(
+        dominant_constraint_source, status, forbidden_claims,
+    )
 
     # ── Map arbiter status to publishability ──
     publishability_map = {
@@ -571,6 +685,11 @@ def adjudicate(
         "dominant_constraint": dominant_constraint,
         "dominant_constraint_source": dominant_constraint_source,
         "pre_arbiter_narrowing": pre_arbiter_narrowing or [],
+        "calibration_version": calibration.version,
+        "calibration_weights": calibration.weights,
+        "causal_path": causal_path,
+        "causal_validation": causal_validation,
+        "external_authority_report": external_authority_report,
         "arbiter_reasoning": reasons,
         "fault_scope": fault_scope_to_dict(fault_scope),
         "scoped_publishability": scoped_pub,
@@ -581,6 +700,13 @@ def adjudicate(
                 invariant_report, reality_conflicts, scope_result,
                 publishability_result,
             ] if x is not None
+        ),
+        "n_external_signals": len(ext_signals),
+        "n_external_accepted": sum(
+            1 for r in external_authority_report if r.get("accepted")
+        ),
+        "n_external_conflicts": sum(
+            1 for r in external_authority_report if r.get("internal_conflict")
         ),
         "n_reasons": len(reasons),
         "n_warnings": len(required_warnings),
@@ -595,6 +721,9 @@ def adjudicate(
             f"{len(forbidden_claims)} claims forbidden. "
             f"{len(reasons)} reasoning steps, "
             f"{len(binding_constraints)} binding constraints. "
+            f"Calibration: {calibration.version}. "
+            f"External signals: {len(ext_signals)} "
+            f"({sum(1 for r in external_authority_report if r.get('accepted'))} accepted). "
             f"This is the FINAL epistemic authority — all exports "
             f"and API endpoints must respect this verdict."
         ),

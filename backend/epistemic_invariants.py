@@ -838,6 +838,171 @@ def check_pre_arbiter_disclosure(
     }
 
 
+def check_calibration_lock(
+    country_verdicts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Check ARB-005: calibration lock invariant.
+
+    Verifies that all arbiter verdicts used the same calibration
+    version and that the weights in the verdict match the declared
+    version. Runtime weights must match the versioned calibration
+    config — no silent drift.
+
+    Args:
+        country_verdicts: {country: arbiter_verdict} from country JSONs.
+
+    Returns:
+        Violation report with pass/fail.
+    """
+    from backend.calibration_config import get_active_calibration
+
+    violations: list[dict[str, Any]] = []
+    ids_checked = ["ARB-005"]
+    active = get_active_calibration()
+
+    for country, verdict in country_verdicts.items():
+        verdict_version = verdict.get("calibration_version")
+        verdict_weights = verdict.get("calibration_weights", {})
+
+        # Check version matches active config
+        if verdict_version is not None and verdict_version != active.version:
+            violations.append(_emi_violation(
+                "ARB-005",
+                f"Verdict for {country} used calibration '{verdict_version}' "
+                f"but active config is '{active.version}'. "
+                f"CALIBRATION_LOCK VIOLATION — runtime drift detected.",
+                {
+                    "country": country,
+                    "verdict_version": verdict_version,
+                    "active_version": active.version,
+                },
+            ))
+            continue
+
+        # Check weights match
+        if verdict_weights and verdict_weights != active.weights:
+            violations.append(_emi_violation(
+                "ARB-005",
+                f"Verdict for {country} has calibration weights that "
+                f"differ from active config. "
+                f"CALIBRATION_LOCK VIOLATION — weight tampering detected.",
+                {
+                    "country": country,
+                    "verdict_weights": verdict_weights,
+                    "active_weights": active.weights,
+                },
+            ))
+
+    return {
+        "passed": len(violations) == 0,
+        "n_checks": len(ids_checked),
+        "n_violations": len(violations),
+        "violations": violations,
+        "invariant_ids_checked": ids_checked,
+    }
+
+
+def check_causal_consistency(
+    country_verdicts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Check ARB-006: causal consistency invariant.
+
+    Verifies that the dominant constraint in each verdict lies on
+    a valid causal path to the final outcome. A constraint that is
+    severe but lies outside the causal path should not be dominant.
+
+    Args:
+        country_verdicts: {country: arbiter_verdict} from country JSONs.
+
+    Returns:
+        Violation report with pass/fail.
+    """
+    violations: list[dict[str, Any]] = []
+    ids_checked = ["ARB-006"]
+
+    for country, verdict in country_verdicts.items():
+        causal_val = verdict.get("causal_validation", {})
+        if causal_val and not causal_val.get("passed", True):
+            violations.append(_emi_violation(
+                "ARB-006",
+                f"Dominant constraint for {country} "
+                f"(source: {causal_val.get('dominant_source', 'unknown')}) "
+                f"does not lie on a causal path to any relevant outcome. "
+                f"CAUSAL_CONSISTENCY VIOLATION.",
+                {
+                    "country": country,
+                    "dominant_source": causal_val.get("dominant_source"),
+                    "reachable_outcomes": causal_val.get("reachable_outcomes", []),
+                    "relevant_outcomes": causal_val.get("relevant_outcomes", []),
+                },
+            ))
+
+    return {
+        "passed": len(violations) == 0,
+        "n_checks": len(ids_checked),
+        "n_violations": len(violations),
+        "violations": violations,
+        "invariant_ids_checked": ids_checked,
+    }
+
+
+def check_no_external_override(
+    country_verdicts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Check ARB-007: no external override invariant.
+
+    Verifies that no external authority signal produced a final
+    decision without arbiter adjudication. External authority is
+    an INPUT SIGNAL — it can influence but never override.
+
+    Detection logic:
+        An external signal that was accepted is fine — the arbiter
+        adopted it through its own mechanism. But if an external
+        signal contradicts internal reasoning and was silently
+        accepted without surfacing the conflict, that's a violation.
+
+    Args:
+        country_verdicts: {country: arbiter_verdict} from country JSONs.
+
+    Returns:
+        Violation report with pass/fail.
+    """
+    violations: list[dict[str, Any]] = []
+    ids_checked = ["ARB-007"]
+
+    for country, verdict in country_verdicts.items():
+        ext_report = verdict.get("external_authority_report", [])
+        warnings = set(verdict.get("final_required_warnings", []))
+
+        for signal in ext_report:
+            if signal.get("internal_conflict") and signal.get("accepted"):
+                # An accepted signal that has an internal conflict
+                # must have surfaced it as a warning
+                conflict_detail = signal.get("conflict_detail", "")
+                expected_warning = f"External authority conflict: {conflict_detail}"
+                if expected_warning not in warnings:
+                    violations.append(_emi_violation(
+                        "ARB-007",
+                        f"External signal from {signal.get('source_id', 'unknown')} "
+                        f"for {country} was accepted despite internal conflict, "
+                        f"but conflict was not surfaced as a warning. "
+                        f"NO_EXTERNAL_OVERRIDE VIOLATION.",
+                        {
+                            "country": country,
+                            "signal_source": signal.get("source_id"),
+                            "conflict_detail": conflict_detail,
+                        },
+                    ))
+
+    return {
+        "passed": len(violations) == 0,
+        "n_checks": len(ids_checked),
+        "n_violations": len(violations),
+        "violations": violations,
+        "invariant_ids_checked": ids_checked,
+    }
+
+
 def enforce_epistemic_monotonicity(
     state_before: dict[str, Any],
     state_after: dict[str, Any],
