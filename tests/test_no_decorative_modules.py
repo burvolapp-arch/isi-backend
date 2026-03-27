@@ -66,13 +66,11 @@ INFRASTRUCTURE_MODULES = frozenset({
     "permitted_scope",              # Scope engine (used by export pipeline)
     "audit_replay",                 # Audit replay (diagnostic tool)
     "authority_conflicts",          # Conflict detection (used by export pipeline)
-    "publishability",               # Publishability assessment (used by export pipeline)
     "complexity_budget",            # Complexity budget (meta-governance tool)
     # ── Endgame Pass v2: epistemic monotonicity/arbiter infrastructure ──
     "epistemic_bounds",             # Bounds propagation (used by arbiter)
     "epistemic_invariants",         # Monotonicity invariants (enforcement tool)
     "authority_precedence",         # Precedence resolution (used by arbiter)
-    "epistemic_arbiter",            # Final epistemic authority (used by export pipeline)
     # ── True Final Pass v3: fault isolation infrastructure ──
     "epistemic_dependencies",       # Dependency graph (used by fault isolation)
     "epistemic_fault_isolation",    # Fault isolation engine (used by arbiter)
@@ -97,6 +95,8 @@ CORE_COMPUTATION_MODULES = frozenset({
     "signing",
     "enforcement_matrix",
     "truth_resolver",
+    "epistemic_arbiter",
+    "publishability",
 })
 
 
@@ -153,6 +153,28 @@ class TestNoDecorativeModules(unittest.TestCase):
         export_path = BACKEND_DIR / "export_snapshot.py"
         source = export_path.read_text()
         self.assertIn('"truth_resolution"', source)
+
+    def test_arbiter_verdict_output_in_country_json(self):
+        """arbiter_verdict must appear in build_country_json return."""
+        export_path = BACKEND_DIR / "export_snapshot.py"
+        source = export_path.read_text()
+        self.assertIn('"arbiter_verdict"', source)
+
+    def test_publishability_output_in_country_json(self):
+        """publishability must appear in build_country_json return."""
+        export_path = BACKEND_DIR / "export_snapshot.py"
+        source = export_path.read_text()
+        self.assertIn('"publishability"', source)
+
+    def test_arbiter_is_core_not_infrastructure(self):
+        """epistemic_arbiter must be in CORE_COMPUTATION_MODULES, not infrastructure."""
+        self.assertIn("epistemic_arbiter", CORE_COMPUTATION_MODULES)
+        self.assertNotIn("epistemic_arbiter", INFRASTRUCTURE_MODULES)
+
+    def test_publishability_is_core_not_infrastructure(self):
+        """publishability must be in CORE_COMPUTATION_MODULES, not infrastructure."""
+        self.assertIn("publishability", CORE_COMPUTATION_MODULES)
+        self.assertNotIn("publishability", INFRASTRUCTURE_MODULES)
 
 
 class TestModulesAreImportable(unittest.TestCase):

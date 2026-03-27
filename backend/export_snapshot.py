@@ -93,6 +93,8 @@ from backend.alignment_sensitivity import (
 from backend.invariants import assess_country_invariants
 from backend.enforcement_matrix import apply_enforcement
 from backend.truth_resolver import resolve_truth
+from backend.epistemic_arbiter import adjudicate as arbiter_adjudicate
+from backend.publishability import assess_publishability
 from backend.signing import (
     SIGNATURE_FILENAME,
     load_private_key,
@@ -601,6 +603,23 @@ def build_country_json(
         ),
     }
 
+    # ── Publishability Assessment ──
+    publishability_result = _compute_publishability(country, truth_result)
+
+    # ── Epistemic Arbiter — SINGLE FINAL AUTHORITY ──
+    # The arbiter takes ALL upstream results and produces a single,
+    # binding epistemic verdict. ALL exports must respect this.
+    arbiter_verdict = _compute_arbiter_verdict(
+        country=country,
+        runtime_status=runtime_status,
+        truth_result=truth_result,
+        governance=governance,
+        failure_visibility=failure_visibility,
+        invariant_result=invariant_result,
+        reality_conflicts=reality_conflicts,
+        publishability_result=publishability_result,
+    )
+
     # ── Version Locking (Section 5) ──
     version_info: dict[str, str] = {
         "methodology_version": methodology_version,
@@ -610,21 +629,41 @@ def build_country_json(
     }
 
     # ── Safe Mode Export (Section 7) ──
-    final_tier = truth_result.get("final_governance_tier", "NON_COMPARABLE")
-    safe_mode_warnings: list[str] = []
+    # Safe mode now derives from the arbiter verdict, not duplicated logic.
+    arbiter_status = arbiter_verdict.get("final_epistemic_status", "VALID")
+    arbiter_forbidden = set(arbiter_verdict.get("final_forbidden_claims", []))
+    safe_mode_warnings: list[str] = list(
+        arbiter_verdict.get("final_required_warnings", [])
+    )
     safe_mode_ranking_hidden = False
 
-    if final_tier in ("LOW_CONFIDENCE", "NON_COMPARABLE"):
+    # Arbiter-driven ranking suppression
+    if "ranking" in arbiter_forbidden or "country_ordering" in arbiter_forbidden:
+        safe_mode_ranking_hidden = True
+        safe_mode_warnings.append(
+            f"Rankings hidden: arbiter status is {arbiter_status}. "
+            f"Epistemic authority has determined ranking claims are not defensible."
+        )
+
+    # Fallback: also check truth_result for backward compatibility
+    final_tier = truth_result.get("final_governance_tier", "NON_COMPARABLE")
+    if final_tier in ("LOW_CONFIDENCE", "NON_COMPARABLE") and not safe_mode_ranking_hidden:
         safe_mode_ranking_hidden = True
         safe_mode_warnings.append(
             f"Rankings hidden: governance tier is {final_tier}. "
             f"This country's data quality does not support ranking comparisons."
         )
 
-    if not truth_result.get("final_ranking_eligible", False):
+    if not truth_result.get("final_ranking_eligible", False) and not safe_mode_ranking_hidden:
         safe_mode_ranking_hidden = True
         safe_mode_warnings.append(
             "Rankings hidden: country is not ranking-eligible."
+        )
+
+    if arbiter_status in ("BLOCKED", "SUPPRESSED"):
+        safe_mode_warnings.append(
+            f"ARBITER {arbiter_status}: Epistemic authority has determined "
+            f"this country's output must not be used for decision-making."
         )
 
     if truth_result.get("export_blocked", False):
@@ -632,6 +671,9 @@ def build_country_json(
             "EXPORT BLOCKED: Structural issues prevent reliable export. "
             "Data in this snapshot should not be used for decision-making."
         )
+
+    # Deduplicate warnings
+    safe_mode_warnings = list(dict.fromkeys(safe_mode_warnings))
 
     safe_mode: dict[str, Any] = {
         "ranking_hidden": safe_mode_ranking_hidden,
@@ -663,6 +705,8 @@ def build_country_json(
         "invariant_assessment": invariant_result,
         "enforcement_actions": enforcement_result,
         "truth_resolution": truth_result,
+        "publishability": publishability_result,
+        "arbiter_verdict": arbiter_verdict,
         "runtime_status": runtime_status,
         "version_info": version_info,
         "safe_mode": safe_mode,
@@ -1006,6 +1050,112 @@ def _compute_invariants(
             "has_critical": False,
             "violations": [],
             "error": f"Invariant assessment failed for {country}",
+        }
+
+
+def _compute_publishability(
+    country: str,
+    truth_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute publishability assessment for a country's export JSON.
+
+    Wraps backend.publishability.assess_publishability with
+    graceful error handling.
+
+    Args:
+        country: ISO-2 code.
+        truth_result: Output of resolve_truth().
+    """
+    try:
+        return assess_publishability(
+            country=country,
+            truth_result=truth_result,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "publishability_status": "NOT_PUBLISHABLE",
+            "is_publishable": False,
+            "requires_caveats": False,
+            "reasons": [],
+            "caveats": [],
+            "blockers": ["Publishability assessment failed during export"],
+            "error": f"Publishability assessment failed for {country}",
+        }
+
+
+def _compute_arbiter_verdict(
+    *,
+    country: str,
+    runtime_status: dict[str, Any] | None = None,
+    truth_result: dict[str, Any] | None = None,
+    governance: dict[str, Any] | None = None,
+    failure_visibility: dict[str, Any] | None = None,
+    invariant_result: dict[str, Any] | None = None,
+    reality_conflicts: dict[str, Any] | None = None,
+    publishability_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute the final epistemic arbiter verdict for a country.
+
+    The arbiter is the SINGLE FINAL AUTHORITY over all outward-facing
+    epistemic state. It consumes all upstream results and produces
+    a binding verdict that safe_mode and all consumers must respect.
+
+    Args:
+        country: ISO-2 code.
+        runtime_status: Pipeline runtime status.
+        truth_result: Output of resolve_truth().
+        governance: Governance assessment result.
+        failure_visibility: Failure visibility result.
+        invariant_result: Invariant assessment result.
+        reality_conflicts: Reality conflict detection result.
+        publishability_result: Publishability assessment result.
+
+    Returns:
+        Arbiter verdict dict with final epistemic status, bounds,
+        allowed/forbidden claims, and reasoning.
+    """
+    try:
+        return arbiter_adjudicate(
+            country=country,
+            runtime_status=runtime_status,
+            truth_resolution=truth_result,
+            governance=governance,
+            failure_visibility=failure_visibility,
+            invariant_report=invariant_result,
+            reality_conflicts=reality_conflicts,
+            publishability_result=publishability_result,
+        )
+    except Exception:
+        return {
+            "country": country,
+            "final_epistemic_status": "BLOCKED",
+            "final_confidence_cap": 0.0,
+            "final_publishability": "NOT_PUBLISHABLE",
+            "final_allowed_claims": [],
+            "final_forbidden_claims": [
+                "ranking", "comparison", "policy_claim",
+                "composite", "country_ordering",
+            ],
+            "final_required_warnings": [
+                "Arbiter computation failed — all claims forbidden.",
+            ],
+            "final_bounds": {},
+            "binding_constraints": ["arbiter_failed"],
+            "arbiter_reasoning": [{
+                "source": "arbiter_error",
+                "decision": "BLOCKED",
+                "detail": "Arbiter computation failed during export.",
+            }],
+            "fault_scope": {},
+            "scoped_publishability": {},
+            "n_inputs_evaluated": 0,
+            "n_reasons": 1,
+            "n_warnings": 1,
+            "n_forbidden_claims": 5,
+            "n_allowed_claims": 0,
+            "n_binding_constraints": 1,
+            "error": f"Arbiter verdict computation failed for {country}",
         }
 
 
