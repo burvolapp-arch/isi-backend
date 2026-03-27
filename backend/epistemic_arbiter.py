@@ -492,9 +492,28 @@ def adjudicate(
     required_warnings = list(dict.fromkeys(required_warnings))
     binding_constraints = sorted(set(binding_constraints))
 
-    # ── External Authority Signals (Extension C) ──
+    # ── External Authority Signals ──
     # External authority signals are INPUT SIGNALS to the arbiter.
     # They influence the verdict but NEVER override it.
+    # Signals are evaluated by CLAIM DOMAIN — a signal can only
+    # constrain an outcome in its own domain. Cross-domain signals
+    # are surfaced as typed conflicts, never silently applied.
+    #
+    # Claim domains map signal claim_type to arbiter outcome domains:
+    CLAIM_DOMAINS: dict[str, frozenset[str]] = {
+        "ranking": frozenset({"ranking"}),
+        "comparison": frozenset({"comparison"}),
+        "policy_claim": frozenset({"policy_claim"}),
+        "composite": frozenset({"composite"}),
+        "country_ordering": frozenset({"country_ordering"}),
+        "publication": frozenset({"publication"}),
+        "scope": frozenset({"final_status"}),
+        "governance": frozenset({"ranking", "comparison", "country_ordering", "final_status"}),
+        "trust": frozenset({"final_status"}),
+        "data_quality": frozenset({"final_status", "ranking", "comparison"}),
+        "temporal": frozenset({"final_status"}),
+    }
+
     external_authority_report: list[dict[str, Any]] = []
     ext_signals = external_authority_signals or []
     for signal in ext_signals:
@@ -504,68 +523,118 @@ def adjudicate(
         signal_decision = signal.get("decision", "VALID")
         signal_scope = signal.get("scope", "unknown")
 
-        # Check for conflict with internal reasoning
+        # Determine signal domain
+        signal_domain = CLAIM_DOMAINS.get(signal_claim, frozenset())
+
+        # If signal_claim is not a recognized domain, treat as
+        # domain mismatch — surface conflict, do not accept
+        domain_recognized = len(signal_domain) > 0
+
+        # Check which internal reasons overlap with signal domain
         internal_conflict = False
         conflict_detail = ""
+        conflict_type = "none"
         for reason in reasons:
+            reason_source = reason.get("source", "")
+            reason_decision = reason.get("decision", "VALID")
+            # Match by scope or claim overlap
             if (
-                reason.get("source", "") in (signal_scope, signal_claim)
-                and reason.get("decision", "VALID") != signal_decision
+                reason_source in (signal_scope, signal_claim)
+                and reason_decision != signal_decision
             ):
                 internal_conflict = True
                 conflict_detail = (
                     f"External {signal_source} says {signal_decision} "
-                    f"but internal {reason['source']} says "
-                    f"{reason.get('decision', 'VALID')}."
+                    f"but internal {reason_source} says {reason_decision}."
                 )
+                # Classify conflict type
+                if not domain_recognized:
+                    conflict_type = "domain_mismatch"
+                elif signal_claim != signal_scope:
+                    conflict_type = "cross_domain"
+                else:
+                    conflict_type = "same_domain"
                 break
 
-        # External signal INFLUENCES status if it is MORE restrictive,
-        # but always through the arbiter's own mechanism
+        # Decision logic: domain-typed, not scalar
         signal_status_level = ARBITER_STATUS_ORDER.get(signal_decision, 0)
         current_status_level = ARBITER_STATUS_ORDER.get(status, 0)
 
         accepted = False
-        if signal_status_level > current_status_level:
-            # External signal is more restrictive — adopt it
+        rejection_reason = ""
+
+        if not domain_recognized:
+            # Unrecognized domain — reject with typed conflict
+            rejection_reason = (
+                f"Rejected: signal claim_type '{signal_claim}' is not a "
+                f"recognized claim domain. Domain mismatch — cannot "
+                f"silently constrain."
+            )
+            if internal_conflict:
+                required_warnings.append(
+                    f"External authority domain mismatch: {conflict_detail}"
+                )
+        elif signal_status_level > current_status_level:
+            # More restrictive AND in a recognized domain — accept
+            # but ONLY affect the claim domains it covers
             status = _more_restrictive_status(status, signal_decision)
             reasons.append({
                 "source": f"external_authority:{signal_source}",
                 "decision": signal_decision,
                 "detail": (
                     f"External authority {signal_source} reports "
-                    f"{signal_decision} for {signal_claim} "
-                    f"(confidence={signal_confidence:.2f})."
+                    f"{signal_decision} for domain '{signal_claim}' "
+                    f"(confidence={signal_confidence:.2f}). "
+                    f"Constrains: {sorted(signal_domain)}."
                 ),
             })
             accepted = True
-        elif internal_conflict:
-            # External is less restrictive but conflicts — surface it
-            required_warnings.append(
-                f"External authority conflict: {conflict_detail}"
+            # If signal domain includes specific claims, forbid them
+            for domain_claim in signal_domain:
+                if (
+                    domain_claim != "final_status"
+                    and domain_claim not in forbidden_claims
+                    and signal_status_level >= 3  # SUPPRESSED or BLOCKED
+                ):
+                    forbidden_claims.append(domain_claim)
+        else:
+            # Less restrictive — reject
+            rejection_reason = (
+                f"Rejected: internal assessment is already "
+                f"{status} (≥ {signal_decision})."
             )
+            if internal_conflict:
+                required_warnings.append(
+                    f"External authority conflict ({conflict_type}): "
+                    f"{conflict_detail}"
+                )
 
         external_authority_report.append({
             "source_id": signal_source,
             "claim_type": signal_claim,
             "confidence": signal_confidence,
             "decision": signal_decision,
+            "domain": sorted(signal_domain) if signal_domain else [],
+            "domain_recognized": domain_recognized,
+            "conflict_type": conflict_type,
             "accepted": accepted,
             "internal_conflict": internal_conflict,
             "conflict_detail": conflict_detail,
             "reason": (
-                "Accepted: more restrictive than internal assessment."
-                if accepted else
-                (f"Rejected: internal assessment is already "
-                 f"{status} (≥ {signal_decision})."
-                 + (" Conflict surfaced as warning." if internal_conflict else ""))
+                f"Accepted: more restrictive in domain '{signal_claim}'. "
+                f"Constrains: {sorted(signal_domain)}."
+                if accepted else rejection_reason
             ),
         })
 
-    # ── Dominant Constraint Extraction (calibrated + causal) ──
-    # Uses calibrated weights from CalibrationConfig and validates
-    # that the dominant constraint lies on a causal path to the
-    # final outcome.
+    # Re-deduplicate after external authority processing
+    forbidden_claims = sorted(set(forbidden_claims))
+
+    # ── Dominant Constraint Extraction (weighted + decision-path) ──
+    # Uses versioned weights from CalibrationConfig and validates
+    # that the dominant constraint lies on a decision path to the
+    # final outcome. Weights are heuristic defaults unless a fitted
+    # artifact has been loaded.
     calibration = get_active_calibration()
 
     # Map source → number of forbidden claims that source directly adds.
@@ -588,13 +657,13 @@ def adjudicate(
         src = reason.get("source", "")
         source_recurrence[src] = source_recurrence.get(src, 0) + 1
 
-    # Relevant outcomes for causal path validation
+    # Relevant outcomes for decision-path validation
     relevant_outcomes = {"final_status"} | set(forbidden_claims)
 
     def _dominance_score(reason: dict[str, str]) -> float:
-        """Compute calibrated dominance score for a reason."""
+        """Compute weighted dominance score for a reason."""
         src = reason.get("source", "")
-        # Strip external_authority: prefix for causal lookup
+        # Strip external_authority: prefix for decision-path lookup
         causal_src = src.split(":")[-1] if src.startswith("external_authority:") else src
         severity = ARBITER_STATUS_ORDER.get(
             reason.get("decision", "VALID"), 0
@@ -613,7 +682,7 @@ def adjudicate(
     dominant_constraint: str | None = None
     dominant_constraint_source: str | None = None
     if reasons:
-        # Score all reasons and filter by causal path
+        # Score all reasons and filter by decision path
         scored: list[tuple[int, float, dict[str, str]]] = []
         for i, reason in enumerate(reasons):
             src = reason.get("source", "")
@@ -622,9 +691,9 @@ def adjudicate(
             on_path = len(reachable & relevant_outcomes) > 0
 
             score = _dominance_score(reason)
-            # Reasons NOT on causal path get their score halved —
+            # Reasons NOT on decision path get their score halved —
             # they can still be dominant if nothing else qualifies,
-            # but causally-connected reasons are strongly preferred.
+            # but path-connected reasons are strongly preferred.
             if not on_path:
                 score *= 0.5
             scored.append((i, score, reason))
@@ -638,7 +707,7 @@ def adjudicate(
         dominant_constraint = best_reason.get("detail", "unknown")
         dominant_constraint_source = best_reason.get("source", "unknown")
 
-    # Causal path trace for audit
+    # Decision-path trace for audit
     causal_path = trace_causal_path(reasons, status, forbidden_claims)
     causal_validation = validate_dominant_on_causal_path(
         dominant_constraint_source, status, forbidden_claims,
@@ -687,8 +756,20 @@ def adjudicate(
         "pre_arbiter_narrowing": pre_arbiter_narrowing or [],
         "calibration_version": calibration.version,
         "calibration_weights": calibration.weights,
+        "calibration_mode": calibration.mode,
+        "calibration_artifact_present": calibration.is_fitted(),
+        "calibration_honesty_note": (
+            "Weights are fitted to labeled data."
+            if calibration.is_fitted() else
+            "Weights are heuristic defaults — not fitted to data."
+        ),
         "causal_path": causal_path,
         "causal_validation": causal_validation,
+        "decision_path_type": "decision_path_dependency",
+        "decision_path_honesty_note": (
+            "Decision-path associations are structural code paths, "
+            "not causal relationships in the interventionist sense."
+        ),
         "external_authority_report": external_authority_report,
         "arbiter_reasoning": reasons,
         "fault_scope": fault_scope_to_dict(fault_scope),
@@ -721,10 +802,10 @@ def adjudicate(
             f"{len(forbidden_claims)} claims forbidden. "
             f"{len(reasons)} reasoning steps, "
             f"{len(binding_constraints)} binding constraints. "
-            f"Calibration: {calibration.version}. "
+            f"Weight mode: {calibration.mode}. "
             f"External signals: {len(ext_signals)} "
             f"({sum(1 for r in external_authority_report if r.get('accepted'))} accepted). "
-            f"This is the FINAL epistemic authority — all exports "
+            f"This is the sole terminal epistemic authority — all exports "
             f"and API endpoints must respect this verdict."
         ),
     }

@@ -40,6 +40,23 @@ from typing import Any
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# CALIBRATION MODE — honest labeling
+# ═══════════════════════════════════════════════════════════════════════════
+
+class CalibrationMode:
+    """Runtime calibration mode — honest about provenance.
+
+    HEURISTIC_DEFAULT: Weights are hand-tuned defaults. No fitting
+        was performed. This is the honest label for the current state.
+    FITTED: Weights were produced by an offline fitting procedure
+        against labeled data. method != 'manual_heuristic' and
+        dataset != 'none' are required preconditions.
+    """
+    HEURISTIC_DEFAULT = "HEURISTIC_DEFAULT"
+    FITTED = "FITTED"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # WEIGHT FEATURE DEFINITIONS
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -100,7 +117,7 @@ class CalibrationConfig:
 
     __slots__ = (
         "_version", "_weights", "_method", "_dataset",
-        "_timestamp", "_notes", "_frozen",
+        "_timestamp", "_notes", "_frozen", "_mode",
     )
 
     def __init__(
@@ -108,7 +125,7 @@ class CalibrationConfig:
         *,
         version: str,
         weights: dict[str, float],
-        method: str = "manual",
+        method: str = "manual_heuristic",
         dataset: str = "none",
         timestamp: str = "unknown",
         notes: str = "",
@@ -138,6 +155,12 @@ class CalibrationConfig:
         self._dataset = dataset
         self._timestamp = timestamp
         self._notes = notes
+        # Mode is determined by actual metadata, not by declaration
+        self._mode = (
+            CalibrationMode.FITTED
+            if method != "manual_heuristic" and dataset != "none"
+            else CalibrationMode.HEURISTIC_DEFAULT
+        )
         self._frozen = True
 
     @property
@@ -164,6 +187,20 @@ class CalibrationConfig:
     def notes(self) -> str:
         return self._notes
 
+    @property
+    def mode(self) -> str:
+        """Return calibration mode: HEURISTIC_DEFAULT or FITTED."""
+        return self._mode
+
+    def is_fitted(self) -> bool:
+        """True only if weights were produced by offline fitting.
+
+        Requires: method != 'manual_heuristic' AND dataset != 'none'.
+        This is the honesty check — no weight is called fitted
+        unless it actually was.
+        """
+        return self._mode == CalibrationMode.FITTED
+
     def weight(self, feature: str) -> float:
         """Get weight for a single feature."""
         if feature not in self._weights:
@@ -183,6 +220,8 @@ class CalibrationConfig:
             "timestamp": self._timestamp,
             "notes": self._notes,
             "features": list(DOMINANCE_FEATURES),
+            "calibration_mode": self._mode,
+            "calibration_artifact_present": self.is_fitted(),
         }
 
     def __repr__(self) -> str:
@@ -203,9 +242,9 @@ DEFAULT_CALIBRATION = CalibrationConfig(
     dataset="none",
     timestamp="2026-03-27",
     notes=(
-        "Original hand-tuned weights from kill-pass. "
+        "Hand-tuned heuristic weights. "
         "severity=3, claims_forbidden=2, primary_path=1, recurrence=0. "
-        "These are the fallback when no empirical calibration is available."
+        "These are heuristic defaults — not fitted to data."
     ),
 )
 
@@ -220,8 +259,8 @@ _active_config: CalibrationConfig = DEFAULT_CALIBRATION
 def get_active_calibration() -> CalibrationConfig:
     """Return the currently active calibration config.
 
-    If no empirical calibration has been loaded, returns the
-    heuristic default.
+    If no fitted calibration has been loaded, returns the
+    heuristic default. Check config.mode for honest labeling.
     """
     return _active_config
 
@@ -267,7 +306,7 @@ CALIBRATION_DATA_SCHEMA: dict[str, str] = {
     "n_claims_forbidden": "Number of claim categories forbidden by this source",
     "is_primary_path": "Boolean: source is on primary decision path",
     "n_recurrence": "Number of times this source appears in reasons",
-    "was_true_bottleneck": "Boolean: expert label — was this the actual causal bottleneck?",
+    "was_true_bottleneck": "Boolean: expert label — was this the actual dominant bottleneck?",
 }
 
 CALIBRATION_OBJECTIVE: str = (

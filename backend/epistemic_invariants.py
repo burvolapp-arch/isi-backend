@@ -905,11 +905,14 @@ def check_calibration_lock(
 def check_causal_consistency(
     country_verdicts: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Check ARB-006: causal consistency invariant.
+    """Check ARB-006: decision-path consistency invariant.
 
     Verifies that the dominant constraint in each verdict lies on
-    a valid causal path to the final outcome. A constraint that is
-    severe but lies outside the causal path should not be dominant.
+    a valid decision path to the final outcome. A constraint that is
+    severe but lies outside the decision path should not be dominant.
+
+    NOTE: This checks structural path association, not causal
+    inference in the interventionist sense.
 
     Args:
         country_verdicts: {country: arbiter_verdict} from country JSONs.
@@ -927,8 +930,8 @@ def check_causal_consistency(
                 "ARB-006",
                 f"Dominant constraint for {country} "
                 f"(source: {causal_val.get('dominant_source', 'unknown')}) "
-                f"does not lie on a causal path to any relevant outcome. "
-                f"CAUSAL_CONSISTENCY VIOLATION.",
+                f"does not lie on a decision path to any relevant outcome. "
+                f"DECISION_PATH_CONSISTENCY VIOLATION.",
                 {
                     "country": country,
                     "dominant_source": causal_val.get("dominant_source"),
@@ -951,15 +954,15 @@ def check_no_external_override(
 ) -> dict[str, Any]:
     """Check ARB-007: no external override invariant.
 
-    Verifies that no external authority signal produced a final
-    decision without arbiter adjudication. External authority is
-    an INPUT SIGNAL — it can influence but never override.
+    Verifies that no external authority signal produced a decision
+    without proper domain-typed conflict resolution. External authority
+    is an INPUT SIGNAL — it can influence but never override.
 
     Detection logic:
-        An external signal that was accepted is fine — the arbiter
-        adopted it through its own mechanism. But if an external
-        signal contradicts internal reasoning and was silently
-        accepted without surfacing the conflict, that's a violation.
+        An accepted signal that has a recognized domain is fine.
+        An accepted signal with an internal conflict must surface
+        the conflict as a warning. An accepted signal from an
+        unrecognized domain is a violation.
 
     Args:
         country_verdicts: {country: arbiter_verdict} from country JSONs.
@@ -975,12 +978,30 @@ def check_no_external_override(
         warnings = set(verdict.get("final_required_warnings", []))
 
         for signal in ext_report:
+            # Check 1: accepted signal with unrecognized domain
+            if signal.get("accepted") and not signal.get("domain_recognized", True):
+                violations.append(_emi_violation(
+                    "ARB-007",
+                    f"External signal from {signal.get('source_id', 'unknown')} "
+                    f"for {country} was accepted with unrecognized domain "
+                    f"'{signal.get('claim_type', 'unknown')}'. "
+                    f"NO_EXTERNAL_OVERRIDE VIOLATION.",
+                    {
+                        "country": country,
+                        "signal_source": signal.get("source_id"),
+                        "claim_type": signal.get("claim_type"),
+                    },
+                ))
+
+            # Check 2: accepted signal with internal conflict must
+            # have surfaced the conflict
             if signal.get("internal_conflict") and signal.get("accepted"):
-                # An accepted signal that has an internal conflict
-                # must have surfaced it as a warning
                 conflict_detail = signal.get("conflict_detail", "")
-                expected_warning = f"External authority conflict: {conflict_detail}"
-                if expected_warning not in warnings:
+                # Look for any warning that references this conflict
+                conflict_surfaced = any(
+                    conflict_detail in w for w in warnings
+                )
+                if not conflict_surfaced:
                     violations.append(_emi_violation(
                         "ARB-007",
                         f"External signal from {signal.get('source_id', 'unknown')} "
@@ -993,6 +1014,71 @@ def check_no_external_override(
                             "conflict_detail": conflict_detail,
                         },
                     ))
+
+    return {
+        "passed": len(violations) == 0,
+        "n_checks": len(ids_checked),
+        "n_violations": len(violations),
+        "violations": violations,
+        "invariant_ids_checked": ids_checked,
+    }
+
+
+def check_calibration_honesty(
+    country_verdicts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Check ARB-008: calibration honesty invariant.
+
+    Verifies that the system does not label runtime weights as
+    FITTED unless a valid fitted artifact with required metadata
+    is present. The calibration_mode field must honestly reflect
+    whether weights are heuristic defaults or empirically fitted.
+
+    Args:
+        country_verdicts: {country: arbiter_verdict} from country JSONs.
+
+    Returns:
+        Violation report with pass/fail.
+    """
+    violations: list[dict[str, Any]] = []
+    ids_checked = ["ARB-008"]
+
+    for country, verdict in country_verdicts.items():
+        mode = verdict.get("calibration_mode", "HEURISTIC_DEFAULT")
+        artifact_present = verdict.get("calibration_artifact_present", False)
+
+        # If mode claims FITTED but artifact is not present → violation
+        if mode == "FITTED" and not artifact_present:
+            violations.append(_emi_violation(
+                "ARB-008",
+                f"Verdict for {country} claims calibration mode FITTED "
+                f"but calibration_artifact_present is False. "
+                f"CALIBRATION_HONESTY VIOLATION — weights cannot be "
+                f"called fitted without a valid artifact.",
+                {
+                    "country": country,
+                    "calibration_mode": mode,
+                    "calibration_artifact_present": artifact_present,
+                },
+            ))
+
+        # If mode is HEURISTIC_DEFAULT, no outward label should
+        # say "empirical" or "fitted" — check honesty_note
+        honesty_note = verdict.get("calibration_honesty_note", "")
+        if mode == "HEURISTIC_DEFAULT" and "fitted" in honesty_note.lower():
+            # Only flag if note says "fitted to data" while mode is heuristic
+            if "not fitted" not in honesty_note.lower():
+                violations.append(_emi_violation(
+                    "ARB-008",
+                    f"Verdict for {country} is in HEURISTIC_DEFAULT mode "
+                    f"but calibration_honesty_note claims fitted. "
+                    f"CALIBRATION_HONESTY VIOLATION.",
+                    {
+                        "country": country,
+                        "calibration_mode": mode,
+                        "honesty_note": honesty_note,
+                    },
+                ))
 
     return {
         "passed": len(violations) == 0,
