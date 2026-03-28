@@ -119,3 +119,74 @@ COUNTRY_CODE_RE: re.Pattern[str] = re.compile(r"^[A-Z]{2}$")
 
 AXIS_ID_RE: re.Pattern[str] = re.compile(r"^[1-9]$")
 """Single digit 1-9 for axis identifiers."""
+
+
+# ---------------------------------------------------------------------------
+# Module type registry — canonical classification of all backend modules.
+#
+# Types:
+#   INPUT       — static data, registries, loaders. No binding decisions.
+#   TRANSFORM   — computation, scoring, classification. May restrict,
+#                 never makes final binding decisions alone.
+#   CONSTRAINT  — makes binding epistemic decisions. Only CONSTRAINT
+#                 modules may set ranking_eligible, publishability,
+#                 governance_tier, or block export. The arbiter is the
+#                 terminal CONSTRAINT.
+#   META        — observation, auditing, complexity tracking, diffing.
+#                 Never restricts or binds. Read-only on epistemic state.
+#   OUTPUT      — materializers, API servers. Serve pre-computed state.
+#                 Must not re-compute or override constraint decisions.
+#
+# Rule: Only CONSTRAINT modules may bind final epistemic outcome.
+# ---------------------------------------------------------------------------
+
+MODULE_TYPES: dict[str, str] = {
+    # CONSTRAINT — modules that make binding epistemic decisions
+    "enforcement_matrix": "CONSTRAINT",
+    "truth_resolver": "CONSTRAINT",
+    "epistemic_arbiter": "CONSTRAINT",
+    "publishability": "CONSTRAINT",
+    "invariants": "CONSTRAINT",
+    "epistemic_invariants": "CONSTRAINT",
+    # TRANSFORM — computation/classification, no final binding
+    "governance": "TRANSFORM",
+    "severity": "TRANSFORM",
+    "eligibility": "TRANSFORM",
+    "authority_conflicts": "TRANSFORM",
+    "authority_precedence": "TRANSFORM",
+    "epistemic_fault_isolation": "TRANSFORM",
+    "epistemic_bounds": "TRANSFORM",
+    "falsification": "TRANSFORM",
+    "construct_enforcement": "TRANSFORM",
+    "alignment_sensitivity": "TRANSFORM",
+    "failure_visibility": "TRANSFORM",
+    "reality_conflicts": "TRANSFORM",
+    "epistemic_override": "TRANSFORM",
+    "permitted_scope": "TRANSFORM",
+    "external_authority_registry": "TRANSFORM",
+    "epistemic_hierarchy": "TRANSFORM",
+    # INPUT — static data and loaders
+    "constants": "INPUT",
+    "calibration": "INPUT",
+    "calibration_config": "INPUT",
+    "external_validation": "INPUT",
+    "epistemic_dependencies": "INPUT",
+    "methodology": "INPUT",
+    "hashing": "INPUT",
+    "benchmark_mapping_audit": "INPUT",
+    "causal_graph": "INPUT",
+    # META — observation, no epistemic binding
+    "audit_replay": "META",
+    "complexity_budget": "META",
+    "snapshot_diff": "META",
+    "provenance": "META",
+    # OUTPUT — materializers and servers
+    "export_snapshot": "OUTPUT",
+    "isi_api_v01": "OUTPUT",
+    "signing": "OUTPUT",
+}
+
+CONSTRAINT_MODULES: frozenset[str] = frozenset(
+    name for name, typ in MODULE_TYPES.items() if typ == "CONSTRAINT"
+)
+"""Only these modules may make binding epistemic decisions."""

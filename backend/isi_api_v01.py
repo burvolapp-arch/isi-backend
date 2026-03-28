@@ -678,11 +678,18 @@ async def get_country_axes(code: str, request: Request) -> Any:
     # TRUTHFULNESS: never strip data quality metadata from axis summaries.
     # Consumers who see only score + classification without degradation
     # context may draw incorrect comparative conclusions.
+    # ANTI-LAUNDERING (ARB): arbiter verdict must envelope all reshaped
+    # views. A consumer cannot bypass the arbiter by requesting /axes
+    # instead of /country/{code}.
+    arbiter = detail.get("arbiter_verdict", {})
     return {
         "country": detail["country"],
         "country_name": detail["country_name"],
         "isi_composite": detail["isi_composite"],
         "governance": detail.get("governance"),
+        "arbiter_status": arbiter.get("final_epistemic_status"),
+        "arbiter_forbidden_claims": arbiter.get("final_forbidden_claims", []),
+        "arbiter_required_warnings": arbiter.get("final_required_warnings", []),
         "axes": [
             {
                 "axis_id": a["axis_id"],

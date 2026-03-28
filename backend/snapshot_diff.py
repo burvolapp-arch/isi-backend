@@ -34,6 +34,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from backend.epistemic_fault_isolation import ContainmentLevel
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CHANGE CLASSIFICATION
@@ -98,6 +100,31 @@ def load_snapshot_country(snapshot_path: Path, country: str) -> dict[str, Any] |
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# UTILITY
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _extract_nested(
+    detail: dict[str, Any] | None, block_key: str, field: str,
+) -> Any | None:
+    """Safely extract a nested field from country detail JSON.
+
+    Args:
+        detail: Country detail JSON dict (may be None).
+        block_key: Top-level key (e.g., "reality_conflicts").
+        field: Nested key within the block (e.g., "n_conflicts").
+
+    Returns:
+        The value if found, None otherwise.
+    """
+    if detail is None:
+        return None
+    block = detail.get(block_key)
+    if not isinstance(block, dict):
+        return None
+    return block.get(field)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # PER-COUNTRY DIFF
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -134,6 +161,12 @@ def diff_country(
             "rank_delta": None,
             "governance_change": None,
             "usability_change": None,
+            "reality_conflicts_change": None,
+            "visibility_change": None,
+            "construct_enforcement_change": None,
+            "sensitivity_change": None,
+            "enforcement_actions_change": None,
+            "truth_status_change": None,
             "axis_deltas": {},
             "root_causes": ["Country added in version B"],
         }
@@ -147,6 +180,12 @@ def diff_country(
             "rank_delta": None,
             "governance_change": None,
             "usability_change": None,
+            "reality_conflicts_change": None,
+            "visibility_change": None,
+            "construct_enforcement_change": None,
+            "sensitivity_change": None,
+            "enforcement_actions_change": None,
+            "truth_status_change": None,
             "axis_deltas": {},
             "root_causes": ["Country removed in version B"],
         }
@@ -185,6 +224,80 @@ def diff_country(
             "from": usab_a,
             "to": usab_b,
             "changed": usab_a != usab_b,
+        }
+
+    # ── Reality conflicts change ──
+    rc_a = _extract_nested(country_detail_a, "reality_conflicts", "n_conflicts")
+    rc_b = _extract_nested(country_detail_b, "reality_conflicts", "n_conflicts")
+    reality_conflicts_change = None
+    if rc_a is not None and rc_b is not None:
+        reality_conflicts_change = {
+            "from": rc_a,
+            "to": rc_b,
+            "changed": rc_a != rc_b,
+        }
+
+    # ── Failure visibility trust level change ──
+    fv_a = _extract_nested(country_detail_a, "failure_visibility", "trust_level")
+    fv_b = _extract_nested(country_detail_b, "failure_visibility", "trust_level")
+    visibility_change = None
+    if fv_a is not None and fv_b is not None:
+        visibility_change = {
+            "from": fv_a,
+            "to": fv_b,
+            "changed": fv_a != fv_b,
+        }
+
+    # ── Construct enforcement change ──
+    ce_a_prod = _extract_nested(country_detail_a, "construct_enforcement", "composite_producible")
+    ce_b_prod = _extract_nested(country_detail_b, "construct_enforcement", "composite_producible")
+    construct_enforcement_change = None
+    if ce_a_prod is not None and ce_b_prod is not None:
+        ce_a_valid = _extract_nested(country_detail_a, "construct_enforcement", "n_valid") or 0
+        ce_b_valid = _extract_nested(country_detail_b, "construct_enforcement", "n_valid") or 0
+        construct_enforcement_change = {
+            "composite_producible_from": ce_a_prod,
+            "composite_producible_to": ce_b_prod,
+            "n_valid_from": ce_a_valid,
+            "n_valid_to": ce_b_valid,
+            "changed": ce_a_prod != ce_b_prod or ce_a_valid != ce_b_valid,
+        }
+
+    # ── Alignment sensitivity change ──
+    sens_a = _extract_nested(country_detail_a, "alignment_sensitivity", "stability_class")
+    sens_b = _extract_nested(country_detail_b, "alignment_sensitivity", "stability_class")
+    sensitivity_change = None
+    if sens_a is not None and sens_b is not None:
+        sensitivity_change = {
+            "from": sens_a,
+            "to": sens_b,
+            "changed": sens_a != sens_b,
+        }
+
+    # ── Enforcement actions change ──
+    enf_a_n = _extract_nested(country_detail_a, "enforcement_actions", "n_actions")
+    enf_b_n = _extract_nested(country_detail_b, "enforcement_actions", "n_actions")
+    enf_a_blocked = _extract_nested(country_detail_a, "enforcement_actions", "export_blocked")
+    enf_b_blocked = _extract_nested(country_detail_b, "enforcement_actions", "export_blocked")
+    enforcement_actions_change = None
+    if enf_a_n is not None and enf_b_n is not None:
+        enforcement_actions_change = {
+            "n_actions_from": enf_a_n,
+            "n_actions_to": enf_b_n,
+            "export_blocked_from": enf_a_blocked,
+            "export_blocked_to": enf_b_blocked,
+            "changed": enf_a_n != enf_b_n or enf_a_blocked != enf_b_blocked,
+        }
+
+    # ── Truth status change ──
+    truth_a = _extract_nested(country_detail_a, "truth_resolution", "truth_status")
+    truth_b = _extract_nested(country_detail_b, "truth_resolution", "truth_status")
+    truth_status_change = None
+    if truth_a is not None and truth_b is not None:
+        truth_status_change = {
+            "from": truth_a,
+            "to": truth_b,
+            "changed": truth_a != truth_b,
         }
 
     # ── Axis-level deltas ──
@@ -308,6 +421,12 @@ def diff_country(
         "rank_delta": rank_delta,
         "governance_change": governance_change,
         "usability_change": usability_change,
+        "reality_conflicts_change": reality_conflicts_change,
+        "visibility_change": visibility_change,
+        "construct_enforcement_change": construct_enforcement_change,
+        "sensitivity_change": sensitivity_change,
+        "enforcement_actions_change": enforcement_actions_change,
+        "truth_status_change": truth_status_change,
         "axis_deltas": axis_deltas,
         "root_causes": root_causes,
     }
@@ -395,6 +514,42 @@ def compare_snapshots(
         if d.get("governance_change") and d["governance_change"].get("changed")
     )
 
+    # Reality conflict changes
+    n_reality_conflicts_changed = sum(
+        1 for d in per_country.values()
+        if d.get("reality_conflicts_change") and d["reality_conflicts_change"].get("changed")
+    )
+
+    # Visibility trust level changes
+    n_visibility_changed = sum(
+        1 for d in per_country.values()
+        if d.get("visibility_change") and d["visibility_change"].get("changed")
+    )
+
+    # Construct enforcement changes
+    n_construct_enforcement_changed = sum(
+        1 for d in per_country.values()
+        if d.get("construct_enforcement_change") and d["construct_enforcement_change"].get("changed")
+    )
+
+    # Alignment sensitivity changes
+    n_sensitivity_changed = sum(
+        1 for d in per_country.values()
+        if d.get("sensitivity_change") and d["sensitivity_change"].get("changed")
+    )
+
+    # Enforcement actions changes
+    n_enforcement_actions_changed = sum(
+        1 for d in per_country.values()
+        if d.get("enforcement_actions_change") and d["enforcement_actions_change"].get("changed")
+    )
+
+    # Truth status changes
+    n_truth_status_changed = sum(
+        1 for d in per_country.values()
+        if d.get("truth_status_change") and d["truth_status_change"].get("changed")
+    )
+
     # Change type distribution
     change_type_counts: dict[str, int] = {}
     for d in per_country.values():
@@ -429,6 +584,12 @@ def compare_snapshots(
         "pct_changed": round(100 * n_changed / n_total, 2) if n_total > 0 else 0,
         "methodology_changed": methodology_changed,
         "n_governance_tier_changes": n_governance_changed,
+        "n_reality_conflicts_changes": n_reality_conflicts_changed,
+        "n_visibility_changes": n_visibility_changed,
+        "n_construct_enforcement_changes": n_construct_enforcement_changed,
+        "n_sensitivity_changes": n_sensitivity_changed,
+        "n_enforcement_actions_changes": n_enforcement_actions_changed,
+        "n_truth_status_changes": n_truth_status_changed,
         "rank_movement": {
             "n_countries_with_rank_change": len(rank_deltas),
             "avg_abs_rank_movement": avg_rank_movement,
@@ -537,6 +698,317 @@ def get_diff_summary_text(diff_result: dict[str, Any]) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# POLICY IMPACT ASSESSMENT (SECTION 4 — Final Hardening)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class PolicyImpactClass:
+    """Classification of policy impact from snapshot changes.
+
+    Answers: "Would a policy-maker who relied on the previous version
+    need to revise their conclusions?"
+    """
+    NO_IMPACT = "NO_IMPACT"
+    MINOR_ADJUSTMENT = "MINOR_ADJUSTMENT"
+    INTERPRETATION_CHANGE = "INTERPRETATION_CHANGE"
+    INVALIDATES_PRIOR_RESULTS = "INVALIDATES_PRIOR_RESULTS"
+
+
+VALID_POLICY_IMPACT_CLASSES = frozenset({
+    PolicyImpactClass.NO_IMPACT,
+    PolicyImpactClass.MINOR_ADJUSTMENT,
+    PolicyImpactClass.INTERPRETATION_CHANGE,
+    PolicyImpactClass.INVALIDATES_PRIOR_RESULTS,
+})
+
+# Thresholds for policy impact classification
+_RANK_SHIFT_MINOR = 2        # ≤2 rank positions = MINOR
+_RANK_SHIFT_MATERIAL = 5     # >5 rank positions = potentially INVALIDATING
+_COMPOSITE_SHIFT_MINOR = 0.03  # ≤0.03 = MINOR
+_COMPOSITE_SHIFT_MATERIAL = 0.10  # >0.10 = potentially INVALIDATING
+
+# Governance tier severity ordering (higher = more restrictive)
+_GOVERNANCE_SEVERITY: dict[str, int] = {
+    "FULLY_COMPARABLE": 0,
+    "PARTIALLY_COMPARABLE": 1,
+    "LOW_CONFIDENCE": 2,
+    "NON_COMPARABLE": 3,
+}
+
+# Usability severity ordering
+_USABILITY_SEVERITY: dict[str, int] = {
+    "TRUSTED_COMPARABLE": 0,
+    "CONDITIONALLY_USABLE": 1,
+    "STRUCTURALLY_LIMITED": 2,
+    "INVALID_FOR_COMPARISON": 3,
+}
+
+
+def assess_country_policy_impact(
+    country_diff: dict[str, Any],
+) -> dict[str, Any]:
+    """Assess policy impact of changes for a single country.
+
+    Classification rules (applied in priority order):
+        1. INVALIDATES_PRIOR_RESULTS if:
+           - Governance tier worsened to NON_COMPARABLE
+           - Usability class became INVALID_FOR_COMPARISON
+           - Rank moved by >5 positions AND composite moved by >0.10
+        2. INTERPRETATION_CHANGE if:
+           - Governance tier changed at all
+           - Usability class changed at all
+           - Rank moved by >5 positions
+           - Composite moved by >0.10
+        3. MINOR_ADJUSTMENT if:
+           - Rank moved by 1-2 positions
+           - Composite moved by >0 but ≤0.03
+        4. NO_IMPACT if:
+           - No material changes
+
+    Args:
+        country_diff: Single-country diff from diff_country().
+
+    Returns:
+        Policy impact assessment for this country.
+    """
+    status = country_diff.get("status", "UNCHANGED")
+    country = country_diff["country"]
+
+    if status == "UNCHANGED":
+        return {
+            "country": country,
+            "impact_class": PolicyImpactClass.NO_IMPACT,
+            "reasons": [],
+            "recommendation": "No action required.",
+        }
+
+    if status in ("ADDED", "REMOVED"):
+        return {
+            "country": country,
+            "impact_class": PolicyImpactClass.INTERPRETATION_CHANGE,
+            "reasons": [f"Country {status.lower()} in new version"],
+            "recommendation": (
+                f"Country was {status.lower()}. "
+                f"Any prior analysis referencing this country must be reviewed."
+            ),
+        }
+
+    reasons: list[str] = []
+    impact_level = 0  # 0=none, 1=minor, 2=interpretation, 3=invalidates
+
+    # ── Governance tier change ──
+    gov_change = country_diff.get("governance_change")
+    if gov_change and gov_change.get("changed"):
+        sev_from = _GOVERNANCE_SEVERITY.get(gov_change["from"], 0)
+        sev_to = _GOVERNANCE_SEVERITY.get(gov_change["to"], 0)
+
+        if gov_change["to"] == "NON_COMPARABLE":
+            impact_level = max(impact_level, 3)
+            reasons.append(
+                f"Governance tier worsened to NON_COMPARABLE "
+                f"(was {gov_change['from']})"
+            )
+        elif sev_to > sev_from:
+            impact_level = max(impact_level, 2)
+            reasons.append(
+                f"Governance tier worsened: "
+                f"{gov_change['from']} → {gov_change['to']}"
+            )
+        elif sev_to < sev_from:
+            impact_level = max(impact_level, 2)
+            reasons.append(
+                f"Governance tier improved: "
+                f"{gov_change['from']} → {gov_change['to']}"
+            )
+        else:
+            # Different tier, same severity — still interpretation change
+            impact_level = max(impact_level, 2)
+            reasons.append(
+                f"Governance tier changed: "
+                f"{gov_change['from']} → {gov_change['to']}"
+            )
+
+    # ── Usability class change ──
+    usab_change = country_diff.get("usability_change")
+    if usab_change and usab_change.get("changed"):
+        sev_from = _USABILITY_SEVERITY.get(usab_change["from"], 0)
+        sev_to = _USABILITY_SEVERITY.get(usab_change["to"], 0)
+
+        if usab_change["to"] == "INVALID_FOR_COMPARISON":
+            impact_level = max(impact_level, 3)
+            reasons.append(
+                f"Usability class became INVALID_FOR_COMPARISON "
+                f"(was {usab_change['from']})"
+            )
+        elif sev_to > sev_from:
+            impact_level = max(impact_level, 2)
+            reasons.append(
+                f"Usability class worsened: "
+                f"{usab_change['from']} → {usab_change['to']}"
+            )
+        elif sev_to < sev_from:
+            impact_level = max(impact_level, 2)
+            reasons.append(
+                f"Usability class improved: "
+                f"{usab_change['from']} → {usab_change['to']}"
+            )
+
+    # ── Rank movement ──
+    rank_delta = country_diff.get("rank_delta")
+    if rank_delta is not None:
+        abs_rank = abs(rank_delta)
+        if abs_rank > _RANK_SHIFT_MATERIAL:
+            impact_level = max(impact_level, 2)
+            reasons.append(f"Rank shifted by {rank_delta:+d} positions (material)")
+        elif abs_rank > _RANK_SHIFT_MINOR:
+            impact_level = max(impact_level, 2)
+            reasons.append(f"Rank shifted by {rank_delta:+d} positions")
+        elif abs_rank > 0:
+            impact_level = max(impact_level, 1)
+            reasons.append(f"Rank shifted by {rank_delta:+d} position(s) (minor)")
+
+    # ── Composite movement ──
+    comp_delta = country_diff.get("composite_delta")
+    if comp_delta is not None:
+        abs_comp = abs(comp_delta)
+        if abs_comp > _COMPOSITE_SHIFT_MATERIAL:
+            impact_level = max(impact_level, 2)
+            reasons.append(
+                f"Composite score changed by {comp_delta:+.8f} (material)"
+            )
+        elif abs_comp > _COMPOSITE_SHIFT_MINOR:
+            impact_level = max(impact_level, 2)
+            reasons.append(f"Composite score changed by {comp_delta:+.8f}")
+        elif abs_comp > 1e-10:
+            impact_level = max(impact_level, 1)
+            reasons.append(
+                f"Composite score changed by {comp_delta:+.8f} (minor)"
+            )
+
+    # ── Combined escalation: large rank + large composite ──
+    if (
+        rank_delta is not None
+        and comp_delta is not None
+        and abs(rank_delta) > _RANK_SHIFT_MATERIAL
+        and abs(comp_delta) > _COMPOSITE_SHIFT_MATERIAL
+    ):
+        impact_level = max(impact_level, 3)
+        reasons.append(
+            "Combined rank and composite shift exceeds material thresholds"
+        )
+
+    # Map level to class
+    impact_class_map = {
+        0: PolicyImpactClass.NO_IMPACT,
+        1: PolicyImpactClass.MINOR_ADJUSTMENT,
+        2: PolicyImpactClass.INTERPRETATION_CHANGE,
+        3: PolicyImpactClass.INVALIDATES_PRIOR_RESULTS,
+    }
+    impact_class = impact_class_map.get(impact_level, PolicyImpactClass.NO_IMPACT)
+
+    # Recommendation
+    recommendations = {
+        PolicyImpactClass.NO_IMPACT:
+            "No action required.",
+        PolicyImpactClass.MINOR_ADJUSTMENT:
+            "Minor adjustments needed. Update numerical references only.",
+        PolicyImpactClass.INTERPRETATION_CHANGE:
+            "Interpretation may have changed. Review all conclusions "
+            "that reference this country.",
+        PolicyImpactClass.INVALIDATES_PRIOR_RESULTS:
+            "PRIOR RESULTS POTENTIALLY INVALID. Any policy document, "
+            "report, or analysis referencing this country's ISI output "
+            "MUST be revised or retracted.",
+    }
+
+    return {
+        "country": country,
+        "impact_class": impact_class,
+        "reasons": reasons,
+        "recommendation": recommendations.get(impact_class, "Review required."),
+    }
+
+
+def assess_policy_impact(diff_result: dict[str, Any]) -> dict[str, Any]:
+    """Assess policy impact across all countries in a snapshot diff.
+
+    This is the policy-facing summary that answers:
+    "What needs to change in published analyses?"
+
+    Args:
+        diff_result: Full diff from compare_snapshots().
+
+    Returns:
+        Policy impact assessment with per-country and global summary.
+    """
+    per_country_impacts: dict[str, dict[str, Any]] = {}
+
+    for country, country_diff in diff_result.get("per_country", {}).items():
+        per_country_impacts[country] = assess_country_policy_impact(country_diff)
+
+    # Global impact statistics
+    impact_counts: dict[str, int] = {
+        PolicyImpactClass.NO_IMPACT: 0,
+        PolicyImpactClass.MINOR_ADJUSTMENT: 0,
+        PolicyImpactClass.INTERPRETATION_CHANGE: 0,
+        PolicyImpactClass.INVALIDATES_PRIOR_RESULTS: 0,
+    }
+    for pi in per_country_impacts.values():
+        ic = pi["impact_class"]
+        impact_counts[ic] = impact_counts.get(ic, 0) + 1
+
+    n_invalidated = impact_counts[PolicyImpactClass.INVALIDATES_PRIOR_RESULTS]
+    n_interpretation = impact_counts[PolicyImpactClass.INTERPRETATION_CHANGE]
+    n_minor = impact_counts[PolicyImpactClass.MINOR_ADJUSTMENT]
+    n_none = impact_counts[PolicyImpactClass.NO_IMPACT]
+
+    # Overall impact level
+    if n_invalidated > 0:
+        overall_class = PolicyImpactClass.INVALIDATES_PRIOR_RESULTS
+        overall_recommendation = (
+            f"{n_invalidated} country(ies) have potentially INVALIDATED "
+            f"prior results. ALL published analyses referencing these "
+            f"countries must be reviewed and potentially retracted."
+        )
+    elif n_interpretation > 0:
+        overall_class = PolicyImpactClass.INTERPRETATION_CHANGE
+        overall_recommendation = (
+            f"{n_interpretation} country(ies) have interpretation changes. "
+            f"Published analyses should be reviewed."
+        )
+    elif n_minor > 0:
+        overall_class = PolicyImpactClass.MINOR_ADJUSTMENT
+        overall_recommendation = (
+            f"{n_minor} country(ies) have minor adjustments. "
+            f"Update numerical references."
+        )
+    else:
+        overall_class = PolicyImpactClass.NO_IMPACT
+        overall_recommendation = "No policy impact. No action required."
+
+    # Countries requiring urgent attention
+    urgent_countries = sorted([
+        country for country, pi in per_country_impacts.items()
+        if pi["impact_class"] == PolicyImpactClass.INVALIDATES_PRIOR_RESULTS
+    ])
+
+    return {
+        "overall_impact_class": overall_class,
+        "overall_recommendation": overall_recommendation,
+        "impact_distribution": impact_counts,
+        "urgent_countries": urgent_countries,
+        "per_country": per_country_impacts,
+        "n_total_countries": len(per_country_impacts),
+        "honesty_note": (
+            "Policy impact classification is STRUCTURAL — it identifies "
+            "which published results need review based on the magnitude "
+            "and nature of changes. The system CANNOT assess whether "
+            "policy conclusions remain valid — only domain experts can "
+            "make that judgment."
+        ),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -566,3 +1038,157 @@ def _isi_country_map(isi_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     result[code] = entry
 
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FAULT SCOPE DIFF
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Containment ordering for scope comparison
+_CONTAINMENT_ORDER: dict[str, int] = {
+    ContainmentLevel.LOCAL: 0,
+    ContainmentLevel.REGIONAL: 1,
+    ContainmentLevel.GLOBAL: 2,
+}
+
+
+def diff_fault_scope(
+    country: str,
+    fault_scope_a: dict[str, Any] | None,
+    fault_scope_b: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Compare fault scope between two versions for a single country.
+
+    Tracks fault scope expansion, contraction, and containment level
+    changes. Rule: "Any scope expansion = MATERIAL CHANGE."
+
+    Args:
+        country: ISO-2 country code.
+        fault_scope_a: Fault scope dict from version A (or None).
+        fault_scope_b: Fault scope dict from version B (or None).
+
+    Returns:
+        Fault scope diff with expansion/contraction analysis.
+    """
+    if fault_scope_a is None and fault_scope_b is None:
+        return {
+            "country": country,
+            "fault_scope_status": "NO_SCOPE",
+            "has_change": False,
+            "is_material": False,
+            "scope_direction": "NONE",
+            "containment_change": None,
+            "axes_added": [],
+            "axes_removed": [],
+            "outputs_added": [],
+            "outputs_removed": [],
+        }
+
+    if fault_scope_a is None:
+        # New fault scope in version B
+        level_b = fault_scope_b.get("containment_level", ContainmentLevel.LOCAL)
+        axes_b = set(fault_scope_b.get("affected_axes", []))
+        outputs_b = set(fault_scope_b.get("affected_outputs", []))
+        return {
+            "country": country,
+            "fault_scope_status": "INTRODUCED",
+            "has_change": True,
+            "is_material": True,
+            "scope_direction": "EXPANSION",
+            "containment_change": {"from": None, "to": level_b},
+            "axes_added": sorted(axes_b),
+            "axes_removed": [],
+            "outputs_added": sorted(outputs_b),
+            "outputs_removed": [],
+            "n_affected_axes_b": len(axes_b),
+            "n_affected_outputs_b": len(outputs_b),
+        }
+
+    if fault_scope_b is None:
+        # Fault scope removed in version B
+        level_a = fault_scope_a.get("containment_level", ContainmentLevel.LOCAL)
+        axes_a = set(fault_scope_a.get("affected_axes", []))
+        outputs_a = set(fault_scope_a.get("affected_outputs", []))
+        return {
+            "country": country,
+            "fault_scope_status": "RESOLVED",
+            "has_change": True,
+            "is_material": False,
+            "scope_direction": "CONTRACTION",
+            "containment_change": {"from": level_a, "to": None},
+            "axes_added": [],
+            "axes_removed": sorted(axes_a),
+            "outputs_added": [],
+            "outputs_removed": sorted(outputs_a),
+            "n_affected_axes_a": len(axes_a),
+            "n_affected_outputs_a": len(outputs_a),
+        }
+
+    # Both versions have fault scope — compare
+    level_a = fault_scope_a.get("containment_level", ContainmentLevel.LOCAL)
+    level_b = fault_scope_b.get("containment_level", ContainmentLevel.LOCAL)
+
+    axes_a = set(fault_scope_a.get("affected_axes", []))
+    axes_b = set(fault_scope_b.get("affected_axes", []))
+
+    outputs_a = set(fault_scope_a.get("affected_outputs", []))
+    outputs_b = set(fault_scope_b.get("affected_outputs", []))
+
+    axes_added = sorted(axes_b - axes_a)
+    axes_removed = sorted(axes_a - axes_b)
+    outputs_added = sorted(outputs_b - outputs_a)
+    outputs_removed = sorted(outputs_a - outputs_b)
+
+    # Containment level change
+    containment_change = None
+    level_expanded = False
+    if level_a != level_b:
+        containment_change = {"from": level_a, "to": level_b}
+        order_a = _CONTAINMENT_ORDER.get(level_a, 0)
+        order_b = _CONTAINMENT_ORDER.get(level_b, 0)
+        level_expanded = order_b > order_a
+
+    # Determine direction
+    has_expansion = bool(axes_added or outputs_added or level_expanded)
+    has_contraction = bool(axes_removed or outputs_removed) and not has_expansion
+    has_change = bool(
+        axes_added or axes_removed or outputs_added or outputs_removed
+        or containment_change
+    )
+
+    if has_expansion:
+        scope_direction = "EXPANSION"
+    elif has_contraction:
+        scope_direction = "CONTRACTION"
+    elif has_change:
+        scope_direction = "SHIFT"
+    else:
+        scope_direction = "NONE"
+
+    # Rule: "Any scope expansion = MATERIAL CHANGE"
+    is_material = has_expansion
+
+    return {
+        "country": country,
+        "fault_scope_status": "CHANGED" if has_change else "UNCHANGED",
+        "has_change": has_change,
+        "is_material": is_material,
+        "scope_direction": scope_direction,
+        "containment_change": containment_change,
+        "axes_added": axes_added,
+        "axes_removed": axes_removed,
+        "outputs_added": outputs_added,
+        "outputs_removed": outputs_removed,
+        "n_affected_axes_a": len(axes_a),
+        "n_affected_axes_b": len(axes_b),
+        "n_affected_outputs_a": len(outputs_a),
+        "n_affected_outputs_b": len(outputs_b),
+        "honesty_note": (
+            f"Fault scope diff for {country}: {scope_direction}. "
+            f"Axes: {len(axes_a)}→{len(axes_b)} "
+            f"(+{len(axes_added)}, -{len(axes_removed)}). "
+            f"Outputs: {len(outputs_a)}→{len(outputs_b)} "
+            f"(+{len(outputs_added)}, -{len(outputs_removed)}). "
+            f"{'MATERIAL — scope expanded.' if is_material else 'Non-material change.'}"
+        ),
+    }

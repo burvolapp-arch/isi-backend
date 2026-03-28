@@ -1,6 +1,31 @@
 """
 backend.calibration — Calibration, falsifiability, and epistemic registry for ISI.
 
+AUTHORITY NOTE:
+    This module is a METADATA and AUDIT module. It does NOT determine
+    eligibility, compute scores, or define benchmarks. Authority hierarchy:
+
+    - Eligibility: backend/eligibility.py (AUTHORITATIVE)
+      This module's EligibilityClass + COUNTRY_ELIGIBILITY_REGISTRY are
+      supplementary metadata, subordinate to eligibility.py.
+
+    - External benchmarks: backend/benchmark_registry.py (AUTHORITATIVE)
+      This module's EXTERNAL_BENCHMARK_REGISTRY is DEPRECATED.
+      Use benchmark_registry.py for all benchmark work.
+
+    - Thresholds: backend/threshold_registry.py has machine-readable
+      justification entries. This module has calibration-class entries.
+      Both are valid — threshold_registry.py is richer.
+
+    - Unique content preserved here:
+      * CalibrationClass + THRESHOLD_CALIBRATION entries (epistemic status)
+      * FALSIFIABILITY_REGISTRY (mechanism-based falsification criteria)
+      * CIRCULARITY_AUDIT (data-flow circularity analysis)
+      * AXIS_CALIBRATION_NOTES (per-axis holistic calibration metadata)
+      * Governance-threshold sensitivity analysis
+      * PSEUDO_RIGOR_AUDIT (self-audit for false confidence)
+      * build_governance_explanation() (enhanced governance explanation)
+
 This module exists because:
     - Every threshold in the governance/severity model has an
       epistemic status: some are empirically calibrated, some are
@@ -10,33 +35,8 @@ This module exists because:
     - Every mechanism in the governance model must have explicit
       falsifiability criteria — what evidence would STRENGTHEN,
       WEAKEN, or FALSIFY each assumption.
-    - Every country must have an explicit eligibility classification
-      that answers: "Can this country be confidently compiled and
-      rated NOW, and if not, why?"
 
 This is NOT a scoring module. It does not modify any computed values.
-It is a METADATA and AUDIT module that provides:
-    1. Threshold calibration registry (TASK 1-2)
-    2. Falsifiability criteria for every governance mechanism (TASK 3)
-    3. Circularity audit trail (TASK 4)
-    4. Per-axis calibration notes (TASK 5)
-    5. Country eligibility registry (TASK 6-7)
-    6. Sensitivity analysis engine (TASK 8)
-    7. External benchmark hooks (TASK 9)
-    8. Governance explanation enhancement (TASK 10)
-    9. Self-audit for pseudo-rigor (TASK 13)
-
-Design contract:
-    - Every number in governance.py and severity.py is referenced here
-      with its calibration_class, evidence_basis, and falsifiability.
-    - CALIBRATION_CLASS values are EXACTLY:
-        EMPIRICAL — derived from data with documented procedure
-        SEMI_EMPIRICAL — informed by data but with judgmental component
-        HEURISTIC — expert judgment, not directly calibrated to data
-        STRUCTURAL_NORMATIVE — design choice that defines the construct
-    - No threshold may be labeled EMPIRICAL unless a reproducible
-      calibration procedure is documented.
-    - "Heuristic" is not a slur. It is an honest label.
 """
 
 from __future__ import annotations
@@ -1679,11 +1679,16 @@ def get_axis_calibration_notes() -> dict[int, dict[str, Any]]:
 # ═══════════════════════════════════════════════════════════════════════════
 # TASK 6 + 7: COUNTRY ELIGIBILITY REGISTRY
 # ═══════════════════════════════════════════════════════════════════════════
+# ⚠️ SUPPLEMENTARY METADATA ONLY — NOT authoritative for eligibility.
+#
 # AUTHORITY UNIFICATION (LAYER 4):
 #
 #   The SINGLE authoritative eligibility system is backend/eligibility.py.
-#   That module defines TheoreticalEligibility (6-level classification)
-#   and DecisionUsabilityClass (4-level decision-grade classification).
+#   That module defines:
+#   - TheoreticalEligibility (6-level classification)
+#   - DecisionUsabilityClass (4-level structural decision classification)
+#   - EmpiricalAlignmentClass (5-level empirical grounding dimension)
+#   - PolicyUsabilityClass (6-level combined policy usability)
 #
 #   This module retains:
 #   - EligibilityClass: backward-compatible 4-level classification for
@@ -1696,6 +1701,7 @@ def get_axis_calibration_notes() -> dict[int, dict[str, Any]]:
 #   metadata. For authoritative eligibility determination, use:
 #     backend.eligibility.classify_country()
 #     backend.eligibility.classify_decision_usability()
+#     backend.eligibility.classify_policy_usability()
 #
 #   See: docs/AUTHORITY_UNIFICATION.md for the full design rationale.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1888,13 +1894,13 @@ for _code in _EU27_SMALL:
 
 COUNTRY_ELIGIBILITY_REGISTRY.extend([
     _eligibility_entry(
-        country="UK",
+        country="GB",
         name="United Kingdom",
         eligibility_class=EligibilityClass.CONFIDENTLY_RATEABLE,
         expected_governance_tier="FULLY_COMPARABLE",
         rationale=(
-            "UK: Major economy with comprehensive data coverage. "
-            "BIS reporter, CPIS participant, Comtrade reporting. "
+            "GB (United Kingdom): Major economy with comprehensive data "
+            "coverage. BIS reporter, CPIS participant, Comtrade reporting. "
             "Post-Brexit trade data may show transitional patterns."
         ),
         data_strengths=[
@@ -2468,7 +2474,19 @@ def _analyze_inverted_axes_sensitivity(
 # ═══════════════════════════════════════════════════════════════════════════
 # TASK 9: EXTERNAL BENCHMARK HOOKS
 # ═══════════════════════════════════════════════════════════════════════════
-# Placeholder infrastructure for future external validation.
+# ⚠️ DEPRECATED — Superseded by backend/benchmark_registry.py
+#
+# The benchmark_registry.py module defines 8 benchmarks with full metadata
+# (comparison types, alignment thresholds, integration status, coverage).
+# The external_validation.py module implements the alignment engine.
+#
+# This EXTERNAL_BENCHMARK_REGISTRY is retained ONLY for backward
+# compatibility with existing tests. It should NOT be extended or
+# modified. For all new benchmark work, use:
+#   backend.benchmark_registry.get_benchmark_registry()
+#   backend.benchmark_registry.get_benchmarks_for_axis()
+#   backend.external_validation.compare_to_benchmark()
+# ═══════════════════════════════════════════════════════════════════════════
 
 EXTERNAL_BENCHMARK_REGISTRY: list[dict[str, Any]] = [
     {

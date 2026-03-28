@@ -495,7 +495,7 @@ class TestCountryEligibilityRegistry:
     def test_reference_countries_covered(self) -> None:
         from backend.calibration import COUNTRY_ELIGIBILITY_REGISTRY
         covered = {e["country"] for e in COUNTRY_ELIGIBILITY_REGISTRY}
-        required_refs = {"UK", "JP", "KR", "NO", "AU", "US", "CN", "SA", "RU", "BR", "IN", "ZA"}
+        required_refs = {"GB", "JP", "KR", "NO", "AU", "US", "CN", "SA", "RU", "BR", "IN", "ZA"}
         missing = required_refs - covered
         assert not missing, f"Reference countries missing: {missing}"
 

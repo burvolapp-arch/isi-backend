@@ -263,6 +263,7 @@ Governance consumes the severity model's outputs (severity_total, comparability_
 |------|--------|-------|
 | 2025 | Initial governance model — 4 tiers, axis confidence, producer inversion, logistics limitation, composite eligibility, truthfulness contract, export gate | 74 tests |
 | 2025 | Calibration + falsifiability layer — all thresholds classified (EMPIRICAL/SEMI_EMPIRICAL/HEURISTIC/STRUCTURAL_NORMATIVE), falsifiability criteria for all mechanisms, country eligibility registry, sensitivity analysis, external benchmark hooks, pseudo-rigor self-audit. See `docs/CALIBRATION_AND_FALSIFIABILITY.md` and `backend/calibration.py`. | +87 tests |
+| 2025 | Final adversarial hardening — construct validity enforcement (CE-001..CE-004), benchmark mapping audit (8 benchmarks), alignment sensitivity testing (4 perturbation types), policy impact assessment, failure visibility layer (anti-bullshit), 4 new invariants (CE-INV-001..CE-INV-004), decision usability hardening with hard constraints. See `docs/FINAL_HARDENING_REPORT.md`. | +102 tests |
 
 ---
 
